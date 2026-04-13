@@ -21,15 +21,28 @@ class DocumentProcessor:
         if not text:
             return chunks
             
-        # Ensure we start at 0 and move by the effective size (size - overlap)
-        step = self.chunk_size - self.chunk_overlap
-        for i in range(0, len(text), step):
-            chunk = text[i : i + self.chunk_size]
-            chunks.append(chunk)
+        # We use a character-based split here, but since LlamaParse provides 
+        # Markdown, we try to split at double newlines first to keep sections intact.
+        # This prevents breaking a legal clause or a table row mid-sentence.
+        
+        paragraphs = text.split("\n\n")
+        current_chunk = ""
+
+        for para in paragraphs:
+            # If adding this paragraph exceeds chunk_size, save current and start new
+            if len(current_chunk) + len(para) > self.chunk_size:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                
+                # Keep overlap: start the next chunk with the end of the previous one
+                overlap_start = max(0, len(current_chunk) - self.chunk_overlap)
+                current_chunk = current_chunk[overlap_start:] + "\n\n" + para
+            else:
+                current_chunk += "\n\n" + para if current_chunk else para
+
+        if current_chunk:
+            chunks.append(current_chunk.strip())
             
-            # Break if we've reached the end of the string to avoid empty chunks
-            if i + self.chunk_size >= len(text):
-                break
         return chunks
 
     def prepare_for_lancedb(self, doc: LegalDocument):
@@ -42,7 +55,8 @@ class DocumentProcessor:
             # We prepend the title and organization directly to the text.
             # This ensures that even if 'CEEW' isn't in the raw text of the table,
             # the chunk is still mathematically related to 'CEEW' and 'Solar'.
-            context_header = f"DOCUMENT: {doc.title}\nORGANIZATION: CEEW\nJURISDICTION: {doc.jurisdiction}\n\n"
+            # Note: Using Markdown bolding here helps LLMs identify the header.
+            context_header = f"### DOCUMENT: {doc.title}\n**ORGANIZATION:** CEEW\n**JURISDICTION:** {doc.jurisdiction}\n\n"
             enriched_text = context_header + chunk
             # --- CONTEXT INJECTION END ---
 

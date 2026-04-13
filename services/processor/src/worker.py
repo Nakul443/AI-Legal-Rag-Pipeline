@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import uuid
+import asyncio # Added to handle async PDF processing
 
 # --- PATH FIX: Ensures it can find chunker, embedder, etc. ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -24,13 +25,18 @@ from vector_store import VectorStore
 from schema import LegalDocument
 from pdf_processor import PDFProcessor
 
-def process_local_pdf(pdf_path: str):
+async def process_local_pdf(pdf_path: str): # Made this async
     print(f"--- Processing PDF: {os.path.basename(pdf_path)} ---")
     
     # 1. Extract
     pdf_reader = PDFProcessor(pdf_path)
-    raw_text = pdf_reader.extract_text()
+    # Changed to await because LlamaParse is async
+    raw_text = await pdf_reader.extract_text() 
     meta = pdf_reader.get_metadata()
+
+    if not raw_text.strip():
+        print(f"⚠️ Warning: No text extracted from {pdf_path}. Skipping.")
+        return
 
     # 2. Schema Wrap
     doc = LegalDocument(
@@ -120,7 +126,8 @@ if __name__ == "__main__":
         # 2. Branch based on file type
         if extension.lower() == ".pdf":
             print("Detected PDF. Running PDF pipeline...")
-            process_local_pdf(target_file)
+            # Run the async function using asyncio
+            asyncio.run(process_local_pdf(target_file))
             
         elif extension.lower() == ".json":
             print("Detected JSON. Running Scraper-data pipeline...")

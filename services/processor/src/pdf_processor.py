@@ -1,35 +1,46 @@
-import fitz  # PyMuPDF
+# raw PDF -> structured text and metadata for RAG pipeline
+# PDFProcessor sends local PDFs to LlamaParse, which converts complex regulatory tables into Markdown,
+# ensuring RAG doesn't lose data during retrieval.
+
 import os
+import asyncio
+from llama_parse import LlamaParse, ResultType
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class PDFProcessor:
     def __init__(self, file_path: str):
         self.file_path = file_path
+        
+        self.parser = LlamaParse(
+            result_type="markdown",  # Ensures tables and headers are preserved  #type:ignore
+            num_workers=4,           # Faster processing for large legal files
+            verbose=True
+        )
 
-    def extract_text(self):
-        """Extracts text from PDF while preserving basic reading order."""
+    async def extract_text(self):
+        """Extracts high-quality Markdown from PDF using LlamaParse."""
         if not os.path.exists(self.file_path):
             raise FileNotFoundError(f"No PDF found at {self.file_path}")
 
-        doc = fitz.open(self.file_path)
-        full_text = []
-
-        doc = fitz.open(self.file_path)
-        full_text = []
-        for page in doc:
-            full_text.append(page.get_text("text"))
-        doc.close()
-        return "\n\n".join(full_text)
+        print(f"Parsing PDF with LlamaParse: {self.file_path}...")
+        
+        # LlamaParse handles the heavy lifting of OCR and table extraction
+        # aload_data is the async version for better performance
+        documents = await self.parser.aload_data(self.file_path)
+        
+        # Combine all pages/documents into one Markdown string
+        full_markdown = "\n\n".join([doc.text for doc in documents])
+        return full_markdown
 
     def get_metadata(self):
-        """Extracts basic PDF metadata."""
-        doc = fitz.open(self.file_path)
-        # Fallback to empty dict if metadata is None
-        metadata = doc.metadata if doc.metadata is not None else {}
-        doc.close()
-        
+        """Extracts basic PDF metadata for the vector store."""
+        # We keep this lightweight without calling the cloud parser again
         return {
             "source_url": self.file_path,
-            "title": metadata.get("title") or os.path.basename(self.file_path),
-            "author": metadata.get("author", "Unknown"),
-            "jurisdiction": "India" 
+            "title": os.path.basename(self.file_path),
+            "author": "Unknown",
+            "jurisdiction": "India",
+            "category": "Electricity" # Defaulting for your Power Grid context
         }

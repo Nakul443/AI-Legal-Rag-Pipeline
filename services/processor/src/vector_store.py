@@ -1,7 +1,7 @@
 # lanceDB manager (lanceDB is the vector database)
 # the data manager for the vector store, responsible for saving and retrieving documents,
 # and managing the metadata associated with each document.
-# It will interface with the vector database (like Pinecone or Weaviate) to store the embeddings and metadata,
+# It will interface with the vector database to store the embeddings and metadata,
 # and provide methods for querying the database based on various criteria (e.g., jurisdiction, category, document type).
 
 # makes it easy for the RAG pipeline to search for documents
@@ -9,6 +9,7 @@
 import lancedb
 import os
 import pandas as pd
+import numpy as np # Added for vector type casting
 from dotenv import load_dotenv
 from typing import Optional
 
@@ -34,15 +35,36 @@ class VectorStore:
 
     def upsert_chunks(self, records: list):
         """Standardizes and saves chunks into the LanceDB table."""
-        df = pd.DataFrame(records)
+        # Process records to flatten metadata for better LanceDB performance
+        processed_records = []
+        for r in records:
+            # Merge top-level keys with metadata keys into a flat dict
+            flat_record = {
+                "id": r["id"],
+                "doc_id": r["doc_id"],
+                "text": r["text"],
+                "vector": np.array(r["vector"], dtype=np.float32), # Ensure float32 for LanceDB
+                **r["metadata"] # Spread the metadata (title, jurisdiction, etc.)
+            }
+            processed_records.append(flat_record)
+
+        df = pd.DataFrame(processed_records)
         
         if self.table_name in self.db.table_names():
             table = self.db.open_table(self.table_name)
             table.add(df)
         else:
-            self.db.create_table(self.table_name, data=df)
+            # Creating table with mode='overwrite' ensures fresh schema if needed
+            self.db.create_table(self.table_name, data=df, mode='overwrite')
             
     def query(self, text_vector, limit=5):
         """Searches the database for the most relevant chunks."""
+        if self.table_name not in self.db.table_names():
+            return pd.DataFrame() # Return empty if no data exists yet
+            
         table = self.db.open_table(self.table_name)
-        return table.search(text_vector).limit(limit).to_pandas()
+        # .to_list() converts the result back from a table/dataframe to a list of dicts
+        return table.search(text_vector).limit(limit).to_list()
+
+# One-Line Flow:
+# VectorStore manages the local LanceDB instance, flattening record metadata and converting embeddings into NumPy arrays for high-speed semantic search.

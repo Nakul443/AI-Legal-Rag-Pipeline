@@ -1,6 +1,7 @@
 # retrieval API
 # takes a user's question, converts it into a vector,
 # and then searches the 100GB of data for the most relevant legal snippets to return as context for the RAG pipeline.
+# uses LLM to generate the answer
 
 import lancedb
 import os
@@ -94,7 +95,7 @@ if __name__ == "__main__":
     
     # a question about CEEW RTS Issue brief
     query = "What are the main findings regarding RTS (Rooftop Solar) in the CEEW brief?"
-    
+
     print(f"\nQuestion: {query}")
     print("-" * 30)
     

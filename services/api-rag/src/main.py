@@ -16,7 +16,7 @@ from typing import Optional
 
 app = FastAPI(title="Vessel Legal RAG API")
 
-# Initialize our core components
+# initialise core components
 engine = RetrievalEngine()
 assistant = LegalAssistant()
 
@@ -35,12 +35,12 @@ async def ask_legal_bot(request: QueryRequest):
             jurisdiction=request.jurisdiction
         )
 
-        if search_results.empty:
+        if not search_results:
             return {"answer": "I couldn't find any specific legal documents matching your query in the database.", "sources": []}
 
         # 2. Extract the text chunks for the AI
-        context_chunks = search_results["text"].tolist()
-        sources = search_results[["metadata"]].to_dict(orient="records")
+        context_chunks = [result["text"] for result in search_results]
+        sources = [{"metadata": result.get("metadata")} for result in search_results]
 
         # 3. Get the professional answer from Gemini
         answer = assistant.ask_legal_question(request.question, context_chunks)
