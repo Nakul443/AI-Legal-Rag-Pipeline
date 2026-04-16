@@ -24,7 +24,7 @@ class Embedder:
         # Using the new Client architecture for 2026
         self.client = genai.Client(api_key=api_key)
         # THIS IS THE ACTUAL STABLE MODEL NAME FOR 2026
-        self.model_name = "text-embedding-004" # Note: gemini-embedding-001 is stable, but 004 is current standard for 2026
+        self.model_name = "gemini-embedding-001"
 
     def get_embeddings(self, text_list: list[str]):
         """Generates vectors using the Google GenAI SDK."""

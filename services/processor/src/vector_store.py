@@ -52,7 +52,13 @@ class VectorStore:
         
         if self.table_name in self.db.table_names():
             table = self.db.open_table(self.table_name)
-            table.add(df)
+            # Try to add data; if the schema has changed (e.g. added 'title'), catch the error
+            try:
+                table.add(df)
+            except ValueError as e:
+                print(f"⚠️ Schema mismatch detected: {e}")
+                print(f"🔄 Re-creating table '{self.table_name}' with new schema...")
+                self.db.create_table(self.table_name, data=df, mode='overwrite')
         else:
             # Creating table with mode='overwrite' ensures fresh schema if needed
             self.db.create_table(self.table_name, data=df, mode='overwrite')
@@ -60,7 +66,7 @@ class VectorStore:
     def query(self, text_vector, limit=5):
         """Searches the database for the most relevant chunks."""
         if self.table_name not in self.db.table_names():
-            return pd.DataFrame() # Return empty if no data exists yet
+            return [] # Return empty list if no data exists yet
             
         table = self.db.open_table(self.table_name)
         # .to_list() converts the result back from a table/dataframe to a list of dicts

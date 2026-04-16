@@ -5,12 +5,16 @@
 
 import lancedb
 import os
-import google.generativeai as genai
-from dotenv import load_dotenv
 import sys
+from google import genai 
+from dotenv import load_dotenv
 
 # reusing the same embedder from processor
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'processor', 'src'))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Up 3 levels: src -> api-rag -> services -> root
+project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
+sys.path.append(os.path.join(project_root, 'services', 'processor', 'src'))
+
 from embedder import Embedder
 
 load_dotenv()
@@ -19,19 +23,16 @@ class RetrievalEngine:
     def __init__(self, db_uri: str | None = None):
         # path logic to find the database from the API service
         if db_uri is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            # Up 3 levels: src -> api-rag -> services -> root
-            project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
             db_uri = os.path.join(project_root, "data/index/legal_vdb")
 
         self.db = lancedb.connect(db_uri) # connect to the LanceDB instance
         self.table_name = "law_chunks" # the table we created in worker.py
-        self.embedder = Embedder() # initialize the same embedder to vectorize the query in the same way as the documents were vectorized during indexing
+        self.embedder = Embedder() # initialize the same embedder to vectorize the query
         
-        # Configure Gemini for the Generation part
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-        self.llm = genai.GenerativeModel('gemini-2.5-flash') # Updated to a stable version string
+        # Initialize Gemini Client
+        # We use the 1.5-flash model for stable, fast legal synthesis
+        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        self.model_name = "gemini-1.5-flash"
 
     def search(self, query: str, limit: int = 10, jurisdiction: str | None = None):
         """Searches 100GB of data for the most relevant legal snippets."""
@@ -44,12 +45,11 @@ class RetrievalEngine:
         # 3. Build the search query
         search_builder = table.search(query_vector).limit(limit)
         
-        # Check if jurisdiction is a string before calling .where()
-        if jurisdiction is not None:
-            # We use metadata.jurisdiction because of how we structured the chunker
-            search_builder = search_builder.where(f"metadata.jurisdiction = '{jurisdiction}'")
+        # Fixed: Jurisdiction is now a top-level column in our flattened LanceDB schema
+        if jurisdiction:
+            search_builder = search_builder.where(f"jurisdiction = '{jurisdiction}'")
             
-        # Return as list of dicts instead of Pandas for easier iteration and to avoid column nesting issues
+        # Return as list of dicts to avoid column nesting issues
         return search_builder.to_list()
 
     def ask(self, user_query: str, jurisdiction: str | None = None):
@@ -61,11 +61,10 @@ class RetrievalEngine:
             return "I couldn't find any relevant legal documents in the database to answer that."
 
         # 2. Construct the context string
+        # Metadata is now flattened: 'title' and 'text' are direct keys
         context_parts = []
         for row in results:
-            # Safely get metadata even if nested differently
-            meta = row.get('metadata', {})
-            source = meta.get('source_url', 'Unknown Source')
+            source = row.get('title', 'Unknown Source')
             text = row.get('text', '')
             context_parts.append(f"SOURCE: {source}\nTEXT: {text}")
         
@@ -86,8 +85,11 @@ class RetrievalEngine:
                 LEGAL ADVICE (Provide a detailed summary and include source citations):
                 """
 
-        # 4. Generate response
-        response = self.llm.generate_content(prompt)
+        # 4. Generate response using unified genai client
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt
+        )
         return response.text
 
 if __name__ == "__main__":

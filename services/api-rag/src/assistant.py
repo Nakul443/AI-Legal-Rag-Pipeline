@@ -3,16 +3,20 @@
 # "translator," turns database rows into professional, human-readable answers to user questions.
 
 import os
-from google import generativeai as genai
+from google import genai
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
 class LegalAssistant:
     def __init__(self):
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        # We use Flash-Lite/Flash for speed and cost-efficiency on 100GB of context
-        self.model = genai.GenerativeModel('gemini-2.5-flash')
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY not found in .env file.")
+        
+        # Same Client pattern as your Embedder — no more genai.configure()
+        self.client = genai.Client(api_key=api_key)
 
     def ask_legal_question(self, question: str, context_chunks: list):
         """Combines the user's question with retrieved legal snippets."""
@@ -35,5 +39,8 @@ class LegalAssistant:
         User Question: {question}
         """
 
-        response = self.model.generate_content(prompt)
+        response = self.client.models.generate_content (
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
         return response.text
