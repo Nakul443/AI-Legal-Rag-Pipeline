@@ -1,8 +1,9 @@
+# One Source of Truth for the entire Lawyer-RAG-Pipeline.
+# Shared by Scraper (Inbound) and Processor (Chunking/Embedding).
 # ensures every document has a unique ID, which is crucial for RAG retrieval and avoiding duplicates in the vector store.
 # The UID can be generated as a hash of the source URL or a combination of title and published date.
 # This schema also includes fields for categorization (jurisdiction, category, document type) and metadata (tags, file path in S3) to enhance the filtering capabilities during retrieval.
-# helps for easy filtering of data
-# if a scraper misses a field, an error will be thrown
+# helps for easy filtering of data; if a scraper or processor misses a field, an error will be thrown.
 
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -22,21 +23,22 @@ class LegalDocument(BaseModel):
     tags: List[str] = []
     file_path_s3: Optional[str] = None
     
-    # NEW: Legal metadata for higher accuracy
+    # NEW: Legal metadata for higher accuracy and rich citations
     act_name: Optional[str] = None
     act_year: Optional[int] = None
     issuing_authority: Optional[str] = None # e.g., "Ministry of Power"
 
-class LegalChunk(BaseModel):
+class LegalChunk(BaseModel):        
     """Schema for individual vector search units (The Child Chunks)"""
     chunk_id: str = Field(..., description="Unique hash for the specific chunk")
     parent_id: str = Field(..., description="UID of the parent LegalDocument")
-    text: str # The actual content of the section
+    text: str # The actual content of the section (including injected context)
     vector: Optional[List[float]] = None # To be filled by the embedder
     
     # Contextual Metadata (Copied from parent for easy filtering in Vector DB)
     jurisdiction: str
     act_name: str
+    category: Optional[str] = None
     
     # Section-Aware Metadata (Critical for Citations)
     section_header: Optional[str] = None # e.g., "Section 135"

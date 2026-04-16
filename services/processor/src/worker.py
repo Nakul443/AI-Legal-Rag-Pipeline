@@ -10,128 +10,152 @@
 # this file won't run every time.
 # only run it when new laws are passed or there's a significant change in data
 
+
+# update:
+# before chunking we will extract the title from pdf to store it
+
 import os
 import sys
 import json
 import uuid
-import asyncio # Added to handle async PDF processing
+import asyncio 
+import re
 
 # --- PATH FIX: Ensures it can find chunker, embedder, etc. ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+if project_root not in sys.path:
+    sys.path.append(project_root)
 
 from chunker import DocumentProcessor
 from embedder import Embedder
 from vector_store import VectorStore
-from schema import LegalDocument
+from models.schema import LegalDocument
 from pdf_processor import PDFProcessor
 
-async def process_local_pdf(pdf_path: str): # Made this async
+def enrich_metadata(title: str, text: str) -> dict:
+    """
+    METADATA ENRICHER: 
+    Extracts the official Act Name, Year, and Category from the title or top of the text.
+    """
+    year_match = re.search(r'\b(19|20)\d{2}\b', title)
+    year = int(year_match.group(0)) if year_match else None
+    act_name = title.split(str(year))[0].strip(', ') if year else title
+
+    text_sample = (title + " " + text[:2000]).lower()
+    category = "General Law"
+    
+    category_map = {
+        "Tariff & Pricing": ["tariff", "pricing", "cost of service", "wheeling"],
+        "Renewable Energy": ["solar", "wind", "renewable", "green energy", "mpo", "rec"],
+        "Grid & Transmission": ["grid", "transmission", "open access", "connectivity", "load despatch"],
+        "Regulatory & Compliance": ["regulation", "compliance", "amendment", "procedure"]
+    }
+
+    for cat, keywords in category_map.items():
+        if any(kw in text_sample for kw in keywords):
+            category = cat
+            break
+    
+    return {
+        "act_name": act_name,
+        "act_year": year,
+        "category": category,
+        "authority": "Central Government" 
+    }
+
+async def process_local_pdf(pdf_path: str):
     print(f"--- Processing PDF: {os.path.basename(pdf_path)} ---")
     
-    # 1. Extract
     pdf_reader = PDFProcessor(pdf_path)
-    # Changed to await because LlamaParse is async
     raw_text = await pdf_reader.extract_text() 
     meta = pdf_reader.get_metadata()
 
     if not raw_text.strip():
-        print(f"⚠️ Warning: No text extracted from {pdf_path}. Skipping.")
+        print(f" Warning: No text extracted from {pdf_path}. Skipping.")
         return
 
-    # 2. Schema Wrap
+    legal_meta = enrich_metadata(meta['title'], raw_text)
+
     doc = LegalDocument(
         uid=str(uuid.uuid4()),
         title=meta['title'],
         content_markdown=raw_text,
         jurisdiction=meta['jurisdiction'],
-        category="General Law", 
-        document_type="PDF",
-        source_url=meta['source_url']
+        category=legal_meta['category'],
+        document_type="Act",
+        source_url=meta['source_url'],
+        act_name=legal_meta['act_name'],
+        act_year=legal_meta['act_year'],
+        issuing_authority=legal_meta['authority']
     )
 
-    # 3. Chunk
-    processor = DocumentProcessor(chunk_size=1000, chunk_overlap=200)
+    processor = DocumentProcessor(chunk_size=1500, chunk_overlap=200)
     records = processor.prepare_for_lancedb(doc)
-    print(f"Created {len(records)} chunks.")
+    print(f"Created {len(records)} section-aware chunks.")
 
-    # 4. Embed in Batches (Safety for 100+ pages)
     embedder = Embedder()
     vdb = VectorStore()
     
-    texts = [r['text'] for r in records]
+    # FIXED: Changed r['text'] to r.text
+    texts = [r.text for r in records]
     all_vectors = []
-    batch_size = 50 # Process 50 chunks at a time
+    batch_size = 50 
     
     print(f"Generating embeddings for {len(texts)} chunks in batches of {batch_size}...")
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
         vectors = embedder.get_embeddings(batch)
         all_vectors.extend(vectors)
-        print(f"Progress: {len(all_vectors)}/{len(texts)}")
     
-    # 5. Attach & Store
     for i, record in enumerate(records):
-        record['vector'] = all_vectors[i]
+        # FIXED: Changed record['vector'] to record.vector
+        record.vector = all_vectors[i]
 
-    vdb.upsert_chunks(records)
-    print(f"Successfully indexed PDF: {meta['title']}")
+    vdb.upsert_chunks([r.dict() for r in records])
+    print(f"Successfully indexed: {legal_meta['act_name']}")
 
-def process_and_index_file(file_path: str):
-    # 1. Load the Scraped Data
+async def process_and_index_file(file_path: str):
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
         doc = LegalDocument(**data)
 
-    # 2. Initialize Tools
-    processor = DocumentProcessor() # chunking
-    embedder = Embedder() # embedding into the vector database
-    vdb = VectorStore() # vector database manager
+    if not doc.act_name:
+        legal_meta = enrich_metadata(doc.title, doc.content_markdown)
+        doc.act_name = legal_meta['act_name']
+        doc.act_year = legal_meta['act_year']
 
-    # 3. Chunk the Legal Text
+    processor = DocumentProcessor() 
+    embedder = Embedder() 
+    vdb = VectorStore() 
+
     print(f"Chunking: {doc.title}...")
     records = processor.prepare_for_lancedb(doc)
     
-    # 4. Generate Embeddings for all chunks at once
-    print(f"Generating Embeddings for {len(records)} chunks...")
-    texts = [r['text'] for r in records]
+    # FIXED: Changed r['text'] to r.text
+    texts = [r.text for r in records]
     vectors = embedder.get_embeddings(texts)
 
-    # 5. Attach vectors to records
     for i, record in enumerate(records):
-        record['vector'] = vectors[i]
+        # FIXED: Changed record['vector'] to record.vector
+        record.vector = vectors[i]
 
-    # 6. Save to LanceDB
     print("Upserting to Vector Database...")
-    vdb.upsert_chunks(records)
+    vdb.upsert_chunks([r.dict() for r in records])
     print(f"Successfully indexed: {doc.uid}")
 
 if __name__ == "__main__":
-    # 1. Get the absolute path of the directory where worker.py lives
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # 2. Go up 3 levels to the root, then into data/raw/
-    # src -> processor -> services -> root
     project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
-    pdf_to_test = os.path.join(project_root, "data", "raw", "my_legal_doc.pdf")
     
-    target_file = os.path.abspath(os.path.join(project_root, "data/raw/my_legal_doc.pdf"))
+    test_filename = "Electricity_Act_2003.pdf"
+    target_file = os.path.join(project_root, "data", "raw", test_filename)
 
-    print("--- Starting Local Indexing Test ---")
-    print(f"Targeting: {pdf_to_test}") # Debug print to see where it's looking
-    
-    if os.path.exists(pdf_to_test):
-        # 1. Get the extension (e.g., '.pdf' or '.json')
+    if os.path.exists(target_file):
         _, extension = os.path.splitext(target_file)
-        
-        # 2. Branch based on file type
         if extension.lower() == ".pdf":
-            print("Detected PDF. Running PDF pipeline...")
-            # Run the async function using asyncio
             asyncio.run(process_local_pdf(target_file))
-            
         elif extension.lower() == ".json":
-            print("Detected JSON. Running Scraper-data pipeline...")
-            process_and_index_file(target_file)
+            asyncio.run(process_and_index_file(target_file))
     else:
-        print(f"ERROR: File not found at {pdf_to_test}")
-        print(f"Check your directory: Current path is {os.getcwd()}")
+        print(f"ERROR: File not found at {target_file}")
