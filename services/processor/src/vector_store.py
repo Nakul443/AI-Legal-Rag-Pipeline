@@ -35,42 +35,48 @@ class VectorStore:
 
     def upsert_chunks(self, records: list):
         """Standardizes and saves chunks into the LanceDB table."""
-        # Process records to flatten metadata for better LanceDB performance
+        # Process records to ensure proper vector types and flat structure
         processed_records = []
         for r in records:
-            # Merge top-level keys with metadata keys into a flat dict
-            flat_record = {
-                "id": r["id"],
-                "doc_id": r["doc_id"],
-                "text": r["text"],
-                "vector": np.array(r["vector"], dtype=np.float32), # Ensure float32 for LanceDB
-                **r["metadata"] # Spread the metadata (title, jurisdiction, etc.)
-            }
+            
+            # Create a copy to avoid mutating the original dict
+            flat_record = r.copy()
+            
+            # Ensure vector is float32 for LanceDB performance
+            if "vector" in flat_record and flat_record["vector"] is not None:
+                flat_record["vector"] = np.array(flat_record["vector"], dtype=np.float32)
+            
             processed_records.append(flat_record)
 
         df = pd.DataFrame(processed_records)
         
         if self.table_name in self.db.table_names():
             table = self.db.open_table(self.table_name)
-            # Try to add data; if the schema has changed (e.g. added 'title'), catch the error
+            # Try to add data; if the schema has changed (e.g. added 'section_header'), catch the error
             try:
                 table.add(df)
             except ValueError as e:
-                print(f"⚠️ Schema mismatch detected: {e}")
-                print(f"🔄 Re-creating table '{self.table_name}' with new schema...")
+                print(f"Schema mismatch detected: {e}")
+                print(f"Re-creating table '{self.table_name}' with new legal metadata schema...")
                 self.db.create_table(self.table_name, data=df, mode='overwrite')
         else:
             # Creating table with mode='overwrite' ensures fresh schema if needed
             self.db.create_table(self.table_name, data=df, mode='overwrite')
             
-    def query(self, text_vector, limit=5):
+    def query(self, text_vector, limit=5, filter_str: Optional[str] = None):
         """Searches the database for the most relevant chunks."""
         if self.table_name not in self.db.table_names():
             return [] # Return empty list if no data exists yet
             
         table = self.db.open_table(self.table_name)
-        # .to_list() converts the result back from a table/dataframe to a list of dicts
-        return table.search(text_vector).limit(limit).to_list()
+        
+        # Enhanced query logic to support SQL-like filtering (e.g., jurisdiction = 'CERC')
+        query_builder = table.search(text_vector)
+        
+        if filter_str:
+            query_builder = query_builder.where(filter_str)
+            
+        return query_builder.limit(limit).to_list()
 
 # One-Line Flow:
 # VectorStore manages the local LanceDB instance, flattening record metadata and converting embeddings into NumPy arrays for high-speed semantic search.
