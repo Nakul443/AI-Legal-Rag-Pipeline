@@ -78,7 +78,7 @@ async def process_local_pdf(pdf_path: str): # Made this async
 
 def process_and_index_file(file_path: str):
     # 1. Load the Scraped Data
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
         doc = LegalDocument(**data)
 

@@ -32,12 +32,12 @@ class RetrievalEngine:
         # Initialize Gemini Client
         # We use the 1.5-flash model for stable, fast legal synthesis
         self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        self.model_name = "gemini-1.5-flash"
+        self.model_name = "gemini-2.5-flash"
 
-    def search(self, query: str, limit: int = 10, jurisdiction: str | None = None):
+    def search(self, search_query: str, limit: int = 10, jurisdiction: str | None = None):
         """Searches 100GB of data for the most relevant legal snippets."""
         # 1. Convert user question into a vector
-        query_vector = self.embedder.get_embeddings([query])[0]
+        query_vector = self.embedder.get_embeddings([search_query])[0]
         
         # 2. Open the table
         table = self.db.open_table(self.table_name)
@@ -55,7 +55,7 @@ class RetrievalEngine:
     def ask(self, user_query: str, jurisdiction: str | None = None):
         """The full RAG flow: Search snippets and generate a legal answer."""
         # 1. Get relevant snippets (Using a higher limit to capture more findings)
-        results = self.search(user_query, limit=15, jurisdiction=jurisdiction)
+        results = self.search(search_query=user_query, limit=15, jurisdiction=jurisdiction)
         
         if not results:
             return "I couldn't find any relevant legal documents in the database to answer that."

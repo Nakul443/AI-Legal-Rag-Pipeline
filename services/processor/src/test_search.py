@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def run_test_query(query_text: str):
-    print(f"--- RAG FULL CIRCUIT TEST ---")
+    """Run a full RAG pipeline test with the provided query text."""
+    print("--- RAG FULL CIRCUIT TEST ---")
     print(f"Question: {query_text}")
 
     # 1. Initialize tools

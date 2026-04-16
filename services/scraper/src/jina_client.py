@@ -19,6 +19,6 @@ class JinaClient:
             "X-Return-Format": "markdown"
         }
         
-        response = requests.get(f"{self.base_url}{url}", headers=headers)
+        response = requests.get(f"{self.base_url}{url}", headers=headers, timeout=30)
         response.raise_for_status()
         return response.text
