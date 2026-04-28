@@ -10,14 +10,25 @@
 """
 
 import os
+import sys
+
+# absolute path to project root
+# We calculate this first to ensure local imports work regardless of execution context
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+
+# add project root to sys.path for imports
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import uuid
 from bs4 import BeautifulSoup
 import asyncio
-# import json
-# import sys
+import json
 import httpx
+# These imports now work because of the sys.path.insert above
 from schema import LegalDocument
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode, CrawlResult
+from mnre_crawler import MNRECrawler
 
 # --- LIGHTWEIGHT HELPERS ---
 # Use these for simple sites like India Code to save local resources
@@ -42,7 +53,7 @@ def should_use_browser(url: str) -> bool:
     
     # 2. Sites known for heavy JavaScript or dynamic content (CERC, SCC, Indian Kanoon)
     # CERC often uses ASP.NET which can be tricky without a browser
-    browser_heavy_domains = ["cercind.gov.in", "indiankanoon.org", "sci.gov.in"]
+    browser_heavy_domains = ["cercind.gov.in", "indiankanoon.org", "sci.gov.in", "mnre.gov.in"]
     if any(domain in url.lower() for domain in browser_heavy_domains):
         return True
         
@@ -54,10 +65,12 @@ async def test_scrape(url: str, jurisdiction: str, category: str, force_browser:
     # This saves local computation while ensuring high-quality extraction.
 
     markdown_content = ""
-    found_title = "Sample Legal Document"
+    # Dynamic logic: found_title is now set per document discovered
     
     # Determine which engine to use
     use_browser = force_browser if force_browser is not None else should_use_browser(url)
+
+    raw_html = ""
 
     if use_browser:
         print(f" Auto-Selected: Crawl4AI (Browser) for {url}")
@@ -78,17 +91,17 @@ async def test_scrape(url: str, jurisdiction: str, category: str, force_browser:
                 print(f"Failed Crawl4AI: {result.error_message}")
                 return
             
+            raw_html = result.html
             markdown_content = result.markdown.raw_markdown if result.markdown else ""
     else:
         print(f" Auto-Selected: Lightweight Fetcher for {url}")
         try:
-            html = fetch_lightweight(url)
-            soup = BeautifulSoup(html, 'html.parser')
+            raw_html = fetch_lightweight(url)
+            soup = BeautifulSoup(raw_html, 'html.parser')
             # Basic cleanup: remove script/style tags
             for script in soup(["script", "style"]):
                 script.decompose()
             markdown_content = soup.get_text(separator='\n')
-
 
         # Specific catch for the fallback mechanism
         # just in case the lightweight fetcher fails
@@ -101,34 +114,60 @@ async def test_scrape(url: str, jurisdiction: str, category: str, force_browser:
             print(f"Could not save file to disk: {e}")
             return
 
-    # Create the structured document
-    doc = LegalDocument(
-        uid=str(uuid.uuid4()),
-        title=found_title, 
-        source_url=url,
-        jurisdiction=jurisdiction,
-        category=category,
-        document_type="Regulation",
-        content_markdown=markdown_content
-    )
-    
-    # Save locally to data/raw for verification
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+    # --- DYNAMIC MNRE DISCOVERY LOGIC ---
+    if "mnre.gov.in" in url:
+        print(f" Processing MNRE Portal: Finding latest documents...")
+        crawler = MNRECrawler()
+        discovered_docs = crawler.parse_document_table(raw_html)
+        
+        # We only process the top 3 newest to save quota and test logic
+        for item in discovered_docs[:3]:
+            doc_uid = str(uuid.uuid4())
+            print(f" -> Found: {item['title']} ({item['date'].strftime('%Y-%m-%d')})")
+            
+            # Create the structured document using dynamic data
+            doc = LegalDocument(
+                uid=doc_uid,
+                title=item['title'], 
+                source_url=item['link'],
+                jurisdiction=jurisdiction,
+                category=category,
+                document_type="Policy/Guideline",
+                content_markdown=f"Date: {item['date']}\n\nDownload Link: {item['link']}\n\nSummary placeholder for discovery."
+            )
+            save_doc_locally(doc)
+    else:
+        # Fallback for non-MNRE sites using standard single-page logic
+        doc = LegalDocument(
+            uid=str(uuid.uuid4()),
+            title="Standard Scrape Result", 
+            source_url=url,
+            jurisdiction=jurisdiction,
+            category=category,
+            document_type="Regulation",
+            content_markdown=markdown_content
+        )
+        save_doc_locally(doc)
+
+def save_doc_locally(doc: LegalDocument):
+    """Helper to save the structured document to data/raw."""
+    # Ensure save_dir exists relative to project root
     save_dir = os.path.join(project_root, "data", "raw")
     os.makedirs(save_dir, exist_ok=True)
     
     file_path = os.path.join(save_dir, f"{doc.uid}.json")
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(doc.json())
-    
-    print(f" Success! Method: {'Browser' if use_browser else 'Lightweight'} | Saved: {file_path}")
+    print(f" Success! Saved: {file_path}")
 
 if __name__ == "__main__":
-    # Test 1: Should trigger Lightweight
-    india_code_url = "https://www.indiacode.nic.in/handle/123456789/1362"
+    # Test 1: MNRE Solar Policy (Dynamic Discovery)
+    mnre_solar_url = "https://mnre.gov.in/en/solar-policies-and-guidelines/"
     
-    # Test 2: Should trigger Browser
-    cerc_url = "https://cercind.gov.in/recent_orders.html" 
+    # Test 2: India Code (Lightweight)
+    # india_code_url = "https://www.indiacode.nic.in/handle/123456789/1362"
     
-    asyncio.run(test_scrape(india_code_url, "Federal", "Electricity"))
-    # asyncio.run(test_scrape(cerc_url, "Federal", "Electricity"))
+    # Test 3: CERC (Browser)
+    # cerc_url = "https://cercind.gov.in/recent_orders.html"
+    
+    asyncio.run(test_scrape(mnre_solar_url, "Federal", "Solar"))

@@ -112,7 +112,7 @@ async def process_local_pdf(pdf_path: str):
         # FIXED: Changed record['vector'] to record.vector
         record.vector = all_vectors[i]
 
-    vdb.upsert_chunks([r.dict() for r in records])
+    vdb.upsert_chunks([r.model_dump() for r in records])
     print(f"Successfully indexed: {legal_meta['act_name']}")
 
 async def process_and_index_file(file_path: str):
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
     
-    test_filename = "Electricity_Act_2003.pdf"
+    test_filename = "my_legal_doc.pdf"
     target_file = os.path.join(project_root, "data", "raw", test_filename)
 
     if os.path.exists(target_file):

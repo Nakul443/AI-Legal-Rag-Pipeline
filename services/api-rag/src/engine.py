@@ -32,7 +32,7 @@ class RetrievalEngine:
         # Initialize Gemini Client
         # We use the 1.5-flash model for stable, fast legal synthesis
         self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        self.model_name = "gemini-2.5-flash"
+        self.model_name = "gemini-2.5-flash-lite"
 
     def search(self, search_query: str, limit: int = 10, jurisdiction: str | None = None):
         """Searches 100GB of data for the most relevant legal snippets."""
