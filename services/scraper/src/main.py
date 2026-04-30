@@ -7,6 +7,7 @@
 # looks at a website and decides whether to use
 # a simple, fast script or heavy-duty virtual browser
 """
+
 import os
 import sys
 from typing import cast
@@ -99,7 +100,7 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
     os.makedirs(save_dir, exist_ok=True)
 
     # Process first 3 discovered items to test the pipeline
-    for item in discovered_docs[:3]:
+    for item in discovered_docs[:1]:
         doc_uid = str(uuid.uuid4())
         pdf_filename = f"{doc_uid}.pdf"
         pdf_path = os.path.join(save_dir, pdf_filename)

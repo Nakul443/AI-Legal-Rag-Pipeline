@@ -1,0 +1,11 @@
+site_name: "MNRE"
+jurisdiction: "Federal"
+category: "Renewable Energy"
+base_url: "https://mnre.gov.in"
+start_url: "https://mnre.gov.in/en/solar-policies-and-guidelines/"
+
+selectors:
+  row: "table tr"
+  title: "td:nth-child(2)"
+  link: "td:nth-child(3) a"
+  date: "td:nth-child(4)"
