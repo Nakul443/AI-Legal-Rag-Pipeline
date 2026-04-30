@@ -25,10 +25,11 @@ import uuid
 from bs4 import BeautifulSoup
 import asyncio
 import httpx
+import json
 
 from models.schema import LegalDocument
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode, CrawlResult
-from mnre_crawler import MNRECrawler
+from collectors.generic_collector import GenericCollector # Updated: Using the generic engine
 
 # --- LIGHTWEIGHT HELPERS ---
 # Use these for simple sites like India Code to save local resources
@@ -76,94 +77,48 @@ async def download_pdf(url: str, save_path: str):
     return False
 
 
-async def test_scrape(url: str, jurisdiction: str, category: str, force_browser: bool | None = None) -> None:
-    # The system now automatically decides which service to use based on the URL.
-    # This saves local computation while ensuring high-quality extraction.
-    markdown_content = ""
-
+async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
+    # The system now uses the GenericCollector to load configuration-based selectors.
+    # This enables scaling to 100+ sites by simply adding a YAML config.
+    
+    collector = GenericCollector(site_key)
+    url = collector.config['start_url']
+    jurisdiction = collector.config['jurisdiction']
+    category = collector.config['category']
+    
     # Determine which engine to use
     use_browser = force_browser if force_browser is not None else should_use_browser(url)
-    raw_html = ""
+    
+    print(f" Processing {collector.config['site_name']} Portal: Finding latest documents...")
+    
+    # Use our generic collector to find links based on YAML selectors
+    # Note: If use_browser is True, the collector uses Crawl4AI inside.
+    discovered_docs = await collector.collect_links()
+    
+    save_dir = os.path.join(project_root, "data", "raw")
+    os.makedirs(save_dir, exist_ok=True)
 
-    if use_browser:
-        print(f" Auto-Selected: Crawl4AI (Browser) for {url}")
-        browser_config = BrowserConfig(headless=True)
-        run_config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS)
-
-        async with AsyncWebCrawler(config=browser_config) as crawler:
-            raw_result = await crawler.arun(url=url, config=run_config)  # type: ignore
-            result = cast(CrawlResult, raw_result)  # fix Pylance: arun() has bad type stubs
-
-            if result is None:
-                print("No result returned from Crawl4AI.")
-                return
-
-            if not result.success:
-                print(f"Failed Crawl4AI: {result.error_message}")
-                return
-
-            raw_html = result.html or ""
-            markdown_content = (result.markdown.raw_markdown if result.markdown else "") or ""
-
-    else:
-        print(f" Auto-Selected: Lightweight Fetcher for {url}")
-        try:
-            raw_html = fetch_lightweight(url)
-            soup = BeautifulSoup(raw_html, 'html.parser')
-            # Basic cleanup: remove script/style tags
-            for script in soup(["script", "style"]):
-                script.decompose()
-            markdown_content = soup.get_text(separator='\n')
-
-        except (httpx.HTTPError, ConnectionError) as e:
-            print(f"Lightweight failed, falling back to browser... Reason: {e}")
-            return await test_scrape(url, jurisdiction, category, force_browser=True)
-
-        except IOError as e:
-            print(f"Could not save file to disk: {e}")
-            return
-
-    # --- DYNAMIC MNRE DISCOVERY LOGIC ---
-    if "mnre.gov.in" in url:
-        print(f" Processing MNRE Portal: Finding latest documents...")
-        save_dir = os.path.join(project_root, "data", "raw")
-        os.makedirs(save_dir, exist_ok=True)
+    # Process first 3 discovered items to test the pipeline
+    for item in discovered_docs[:3]:
+        doc_uid = str(uuid.uuid4())
+        pdf_filename = f"{doc_uid}.pdf"
+        pdf_path = os.path.join(save_dir, pdf_filename)
         
-        mnre_crawler = MNRECrawler()
-        discovered_docs = mnre_crawler.parse_document_table(raw_html)
-        for item in discovered_docs[:3]:
-            doc_uid = str(uuid.uuid4())
-            pdf_filename = f"{doc_uid}.pdf"
-            pdf_path = os.path.join(save_dir, pdf_filename)
-            
-            print(f" -> Downloading: {item['title']}...")
-            success = await download_pdf(item['link'], pdf_path)
-            
-            if success:
-                # Create the structured document with the actual local path
-                doc = LegalDocument(
-                    uid=doc_uid,
-                    title=item['title'], 
-                    source_url=item['link'],
-                    jurisdiction=jurisdiction,
-                    category=category,
-                    document_type="Policy/Guideline",
-                    content_markdown=f"LOCAL_PDF_PATH: {pdf_path}" # Signals processor to parse this PDF
-                )
-                save_doc_locally(doc)
-
-    else:
-        # Fallback for non-MNRE sites using standard single-page logic
-        doc = LegalDocument(
-            uid=str(uuid.uuid4()),
-            title="Standard Scrape Result",
-            source_url=url,
-            jurisdiction=jurisdiction,
-            category=category,
-            document_type="Regulation",
-            content_markdown=markdown_content
-        )
-        save_doc_locally(doc)
+        print(f" -> Downloading: {item['title']}...")
+        success = await download_pdf(item['url'], pdf_path)
+        
+        if success:
+            # Create the structured document with the actual local path
+            doc = LegalDocument(
+                uid=doc_uid,
+                title=item['title'], 
+                source_url=item['url'],
+                jurisdiction=jurisdiction,
+                category=category,
+                document_type="Policy/Guideline",
+                content_markdown=f"LOCAL_PDF_PATH: {pdf_path}" # Signals processor to parse this PDF
+            )
+            save_doc_locally(doc)
 
 def save_doc_locally(doc: LegalDocument) -> None:
     """Helper to save the structured document to data/raw."""
@@ -176,13 +131,11 @@ def save_doc_locally(doc: LegalDocument) -> None:
     print(f" Success! Saved: {file_path}")
 
 if __name__ == "__main__":
-    # Test 1: MNRE Solar Policy (Dynamic Discovery)
-    mnre_solar_url = "https://mnre.gov.in/en/solar-policies-and-guidelines/"
+    # To scrape a new site, ensure a corresponding YAML exists in scraper/configs/
+    # Then just change the site_key here.
+    
+    # Example 1: MNRE
+    asyncio.run(test_scrape("mnre"))
 
-    # Test 2: India Code (Lightweight)
-    # india_code_url = "https://www.indiacode.nic.in/handle/123456789/1362"
-
-    # Test 3: CERC (Browser)
-    # cerc_url = "https://cercind.gov.in/recent_orders.html"
-
-    asyncio.run(test_scrape(mnre_solar_url, "Federal", "Solar"))
+    # Example 2: CERC (When your cerc.yaml is ready)
+    # asyncio.run(test_scrape("cerc"))

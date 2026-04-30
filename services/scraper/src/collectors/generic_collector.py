@@ -11,6 +11,8 @@ from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode, CrawlResult
 from utils.config_loader import load_site_config
 from bs4 import BeautifulSoup
 import httpx
+import json
+import uuid
 
 class GenericCollector:
     def __init__(self, site_key: str):
@@ -72,3 +74,27 @@ class GenericCollector:
 
             print(f" Found {len(documents)} documents on {self.config['site_name']}")
             return documents
+
+async def save_to_raw(self, doc_data: dict):
+    """Saves the metadata and PDF to data/raw for the worker to process."""
+    uid = str(uuid.uuid4())
+    raw_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/raw"))
+    os.makedirs(raw_dir, exist_ok=True)
+
+    # 1. Save JSON Metadata
+    doc_data['uid'] = uid
+    json_path = os.path.join(raw_dir, f"{uid}.json")
+    with open(json_path, "w") as f:
+        json.dump(doc_data, f)
+
+    # 2. Download PDF
+    pdf_path = os.path.join(raw_dir, f"{uid}.pdf")
+    async with httpx.AsyncClient(verify=False) as client:
+        try:
+            resp = await client.get(doc_data['url'])
+            if resp.status_code == 200:
+                with open(pdf_path, "wb") as f:
+                    f.write(resp.content)
+                print(f" Saved: {doc_data['title']}")
+        except Exception as e:
+            print(f" PDF Download Failed: {e}")
