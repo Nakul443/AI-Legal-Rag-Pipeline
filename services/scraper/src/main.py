@@ -60,6 +60,22 @@ def should_use_browser(url: str) -> bool:
     # Default: Use browser if unsure to ensure we don't miss content
     return True
 
+
+# helper function to handle file download
+async def download_pdf(url: str, save_path: str):
+    """Downloads a PDF from a URL to a local path."""
+    async with httpx.AsyncClient(follow_redirects=True, verify=False) as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            if response.status_code == 200:
+                with open(save_path, "wb") as f:
+                    f.write(response.content)
+                return True
+        except Exception as e:
+            print(f"Failed to download PDF from {url}: {e}")
+    return False
+
+
 async def test_scrape(url: str, jurisdiction: str, category: str, force_browser: bool | None = None) -> None:
     # The system now automatically decides which service to use based on the URL.
     # This saves local computation while ensuring high-quality extraction.
@@ -110,24 +126,31 @@ async def test_scrape(url: str, jurisdiction: str, category: str, force_browser:
     # --- DYNAMIC MNRE DISCOVERY LOGIC ---
     if "mnre.gov.in" in url:
         print(f" Processing MNRE Portal: Finding latest documents...")
+        save_dir = os.path.join(project_root, "data", "raw")
+        os.makedirs(save_dir, exist_ok=True)
+        
         mnre_crawler = MNRECrawler()
         discovered_docs = mnre_crawler.parse_document_table(raw_html)
-
-        # We only process the top 3 newest to save quota and test logic
         for item in discovered_docs[:3]:
             doc_uid = str(uuid.uuid4())
-            print(f" -> Found: {item['title']} ({item['date'].strftime('%Y-%m-%d')})")
-
-            doc = LegalDocument(
-                uid=doc_uid,
-                title=item['title'],
-                source_url=item['link'],
-                jurisdiction=jurisdiction,
-                category=category,
-                document_type="Policy/Guideline",
-                content_markdown=f"Date: {item['date']}\n\nDownload Link: {item['link']}\n\nSummary placeholder for discovery."
-            )
-            save_doc_locally(doc)
+            pdf_filename = f"{doc_uid}.pdf"
+            pdf_path = os.path.join(save_dir, pdf_filename)
+            
+            print(f" -> Downloading: {item['title']}...")
+            success = await download_pdf(item['link'], pdf_path)
+            
+            if success:
+                # Create the structured document with the actual local path
+                doc = LegalDocument(
+                    uid=doc_uid,
+                    title=item['title'], 
+                    source_url=item['link'],
+                    jurisdiction=jurisdiction,
+                    category=category,
+                    document_type="Policy/Guideline",
+                    content_markdown=f"LOCAL_PDF_PATH: {pdf_path}" # Signals processor to parse this PDF
+                )
+                save_doc_locally(doc)
 
     else:
         # Fallback for non-MNRE sites using standard single-page logic

@@ -1,7 +1,6 @@
 # raw PDF -> structured text and metadata for RAG pipeline
 # PDFProcessor sends local PDFs to LlamaParse, which converts complex regulatory tables into Markdown,
 # ensuring RAG doesn't lose data during retrieval.
-
 import os
 import asyncio
 from llama_parse import LlamaParse, ResultType
@@ -14,16 +13,15 @@ class PDFProcessor:
         self.file_path = file_path
         
         self.parser = LlamaParse(
-            result_type="markdown",  # Ensures tables and headers are preserved  #type:ignore
             num_workers=4,           # Faster processing for large legal files
-            verbose=True
+            verbose=True,            # type: ignore
+            result_type=ResultType.MD
         )
 
     async def extract_text(self):
         """Extracts high-quality Markdown from PDF using LlamaParse."""
         if not os.path.exists(self.file_path):
             raise FileNotFoundError(f"No PDF found at {self.file_path}")
-
         print(f"Parsing PDF with LlamaParse: {self.file_path}...")
         
         # LlamaParse handles the heavy lifting of OCR and table extraction
@@ -42,5 +40,5 @@ class PDFProcessor:
             "title": os.path.basename(self.file_path),
             "author": "Unknown",
             "jurisdiction": "India",
-            "category": "Electricity" # Defaulting for your Power Grid context
+            "category": "Electricity"  # Defaulting for your Power Grid context
         }

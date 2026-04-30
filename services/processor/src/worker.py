@@ -64,27 +64,35 @@ def enrich_metadata(title: str, text: str) -> dict:
         "authority": "Central Government" 
     }
 
-async def process_local_pdf(pdf_path: str):
-    print(f"--- Processing PDF: {os.path.basename(pdf_path)} ---")
+async def process_discovered_pair(json_path: str, pdf_path: str):
+    """
+    Internal helper to process a single JSON/PDF pair.
+    """
+    print(f"--- Processing: {os.path.basename(pdf_path)} ---")
     
+    # Load the scraped metadata first
+    with open(json_path, 'r', encoding='utf-8') as f:
+        scraped_data = json.load(f)
+
     pdf_reader = PDFProcessor(pdf_path)
     raw_text = await pdf_reader.extract_text() 
+    # Use existing PDF metadata if needed, or fallback to scraped data
     meta = pdf_reader.get_metadata()
 
     if not raw_text.strip():
         print(f" Warning: No text extracted from {pdf_path}. Skipping.")
-        return
+        return False
 
-    legal_meta = enrich_metadata(meta['title'], raw_text)
+    legal_meta = enrich_metadata(scraped_data['title'], raw_text)
 
     doc = LegalDocument(
-        uid=str(uuid.uuid4()),
-        title=meta['title'],
+        uid=scraped_data['uid'],
+        title=scraped_data['title'],
         content_markdown=raw_text,
-        jurisdiction=meta['jurisdiction'],
-        category=legal_meta['category'],
+        jurisdiction=scraped_data['jurisdiction'],
+        category=scraped_data.get('category', legal_meta['category']),
         document_type="Act",
-        source_url=meta['source_url'],
+        source_url=scraped_data['source_url'],
         act_name=legal_meta['act_name'],
         act_year=legal_meta['act_year'],
         issuing_authority=legal_meta['authority']
@@ -114,48 +122,44 @@ async def process_local_pdf(pdf_path: str):
 
     vdb.upsert_chunks([r.model_dump() for r in records])
     print(f"Successfully indexed: {legal_meta['act_name']}")
+    return True
 
-async def process_and_index_file(file_path: str):
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-        doc = LegalDocument(**data)
+async def run_discovery_and_ingest():
+    """
+    Scans data/raw for UUID-based pairs and purges them after ingestion.
+    """
+    raw_dir = os.path.join(project_root, "data", "raw")
+    if not os.path.exists(raw_dir):
+        print("Data/raw directory not found.")
+        return
 
-    if not doc.act_name:
-        legal_meta = enrich_metadata(doc.title, doc.content_markdown)
-        doc.act_name = legal_meta['act_name']
-        doc.act_year = legal_meta['act_year']
-
-    processor = DocumentProcessor() 
-    embedder = Embedder() 
-    vdb = VectorStore() 
-
-    print(f"Chunking: {doc.title}...")
-    records = processor.prepare_for_lancedb(doc)
+    # Find all .json files (the metadata anchors)
+    metadata_files = [f for f in os.listdir(raw_dir) if f.endswith(".json")]
     
-    # FIXED: Changed r['text'] to r.text
-    texts = [r.text for r in records]
-    vectors = embedder.get_embeddings(texts)
+    if not metadata_files:
+        print("No new files in data/raw to process.")
+        return
 
-    for i, record in enumerate(records):
-        # FIXED: Changed record['vector'] to record.vector
-        record.vector = vectors[i]
+    for meta_file in metadata_files:
+        json_path = os.path.join(raw_dir, meta_file)
+        # Scraper saves files as {uid}.json and {uid}.pdf
+        uid = meta_file.replace(".json", "")
+        pdf_path = os.path.join(raw_dir, f"{uid}.pdf")
 
-    print("Upserting to Vector Database...")
-    vdb.upsert_chunks([r.dict() for r in records])
-    print(f"Successfully indexed: {doc.uid}")
+        if os.path.exists(pdf_path):
+            success = await process_discovered_pair(json_path, pdf_path)
+            
+            # --- SCALE PROTECTION: PURGE ---
+            if success:
+                try:
+                    os.remove(json_path)
+                    os.remove(pdf_path)
+                    print(f" Purged local files for {uid} to save disk space.")
+                except Exception as e:
+                    print(f" Cleanup error: {e}")
+        else:
+            print(f" Skipping {uid}: Corresponding PDF not found.")
 
 if __name__ == "__main__":
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
-    
-    test_filename = "my_legal_doc.pdf"
-    target_file = os.path.join(project_root, "data", "raw", test_filename)
-
-    if os.path.exists(target_file):
-        _, extension = os.path.splitext(target_file)
-        if extension.lower() == ".pdf":
-            asyncio.run(process_local_pdf(target_file))
-        elif extension.lower() == ".json":
-            asyncio.run(process_and_index_file(target_file))
-    else:
-        print(f"ERROR: File not found at {target_file}")
+    # Now calls the discovery logic instead of hardcoded filenames
+    asyncio.run(run_discovery_and_ingest())
