@@ -1,0 +1,13 @@
+# config/sites/uperc.yaml
+site_name: "UPERC"
+jurisdiction: "State - Uttar Pradesh"
+category: "Tariff Orders"
+base_url: "https://www.uperc.org"
+start_url: "https://www.uperc.org/Tariff_Order_Users.aspx"
+
+selectors:
+  row: "table tr:has(a)"
+  title: "td:nth-child(2)"
+  link: "td:nth-child(3) a"
+  # We set date to null because UPERC tables are inconsistent with date columns
+  date: null

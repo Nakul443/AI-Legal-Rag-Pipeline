@@ -1,0 +1,17 @@
+# config/sites/seci.yaml
+site_name: "SECI"
+jurisdiction: "Central"
+category: "Tenders"
+base_url: "https://www.seci.co.in"
+start_url: "https://www.seci.co.in/tenders"
+
+selectors:
+  # The table ID is correct, but we'll use a broader selector 
+  # to ensure we catch rows even if the ID is dynamic.
+  row: "table.dataTable tbody tr" 
+  title: "td:nth-child(5)"     # Tender Title
+  link: "td:nth-child(8) a"    # View Details link
+  date: "td:nth-child(6)"      # Publication Date
+  
+# New: Adding a wait condition for SECI
+wait_for: "table.dataTable tbody tr"

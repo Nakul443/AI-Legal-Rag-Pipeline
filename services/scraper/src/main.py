@@ -36,8 +36,10 @@ from collectors.generic_collector import GenericCollector # Updated: Using the g
 # Use these for simple sites like India Code to save local resources
 def fetch_lightweight(url: str) -> str:
     """Fetches page content without a browser using httpx."""
-    headers = {"User-Agent": "Mozilla/5.0"}
-    with httpx.Client(headers=headers, follow_redirects=True, timeout=10.0) as client:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    with httpx.Client(headers=headers, follow_redirects=True, timeout=15.0, verify=False) as client:
         res = client.get(url)
         return res.text
 
@@ -49,13 +51,13 @@ def should_use_browser(url: str) -> bool:
     Decides if we need the heavy Crawl4AI browser or just lightweight HTTPX.
     """
     # 1. Simple gov portals or direct PDF links don't need a browser
-    lightweight_domains = ["indiacode.nic.in", "ceew.in", "caselaw.in"]
+    lightweight_domains = ["indiacode.nic.in", "ceew.in", "caselaw.in", "exam.tnebnet.org"]
     if any(domain in url.lower() for domain in lightweight_domains):
         return False
 
     # 2. Sites known for heavy JavaScript or dynamic content (CERC, SCC, Indian Kanoon)
     # CERC often uses ASP.NET which can be tricky without a browser
-    browser_heavy_domains = ["cercind.gov.in", "indiankanoon.org", "sci.gov.in", "mnre.gov.in"]
+    browser_heavy_domains = ["cercind.gov.in", "indiankanoon.org", "sci.gov.in", "mnre.gov.in", "mahadiscom.in", "gercin.org", "seci.co.in"]
     if any(domain in url.lower() for domain in browser_heavy_domains):
         return True
 
@@ -66,7 +68,10 @@ def should_use_browser(url: str) -> bool:
 # helper function to handle file download
 async def download_pdf(url: str, save_path: str):
     """Downloads a PDF from a URL to a local path."""
-    async with httpx.AsyncClient(follow_redirects=True, verify=False) as client:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, verify=False) as client:
         try:
             response = await client.get(url, timeout=30.0)
             if response.status_code == 200:
@@ -74,7 +79,7 @@ async def download_pdf(url: str, save_path: str):
                     f.write(response.content)
                 return True
         except Exception as e:
-            print(f"Failed to download PDF from {url}: {e}")
+            print(f" Failed to download PDF from {url}: {e}")
     return False
 
 
@@ -91,6 +96,20 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
     use_browser = force_browser if force_browser is not None else should_use_browser(url)
     
     print(f" Processing {collector.config['site_name']} Portal: Finding latest documents...")
+    
+    # --- ENHANCED BROWSER CONFIG FOR ANTI-BOT ---
+    # Updated: Using try-except for BrowserConfig to handle Crawl4AI version variances
+    try:
+        browser_config = BrowserConfig(
+            headless=True,
+            extra_args=["--disable-blink-features=AutomationControlled"], # Standard stealth
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+        )
+    except TypeError:
+        # Fallback for older or strictly limited versions
+        browser_config = BrowserConfig(headless=True)
     
     # Use our generic collector to find links based on YAML selectors
     # Note: If use_browser is True, the collector uses Crawl4AI inside.
@@ -132,11 +151,28 @@ def save_doc_locally(doc: LegalDocument) -> None:
     print(f" Success! Saved: {file_path}")
 
 if __name__ == "__main__":
-    # To scrape a new site, ensure a corresponding YAML exists in scraper/configs/
-    # Then just change the site_key here.
+    # 1. Define the path to your configs folder
+    config_dir = os.path.join(project_root, "services/scraper/configs")
     
-    # Example 1: MNRE
-    asyncio.run(test_scrape("mnre"))
+    # 2. Get all .yaml files (mnre, cerc, cea, seci)
+    # This automatically builds your "array" from the files you've created
+    sites_to_scrape = [
+        f.replace(".yaml", "") 
+        for f in os.listdir(config_dir) 
+        if f.endswith(".yaml")
+    ]
 
-    # Example 2: CERC (When your cerc.yaml is ready)
-    # asyncio.run(test_scrape("cerc"))
+    async def run_all_scrapers(sites):
+        print(f" Starting batch scrape for: {', '.join(sites)}")
+        for site in sites:
+            try:
+                # We await each one so they run sequentially, 
+                # preventing your CPU from exploding with 4 browsers at once.
+                await test_scrape(site)
+            except Exception as e:
+                print(f" Failed to scrape {site}: {str(e)}")
+                continue # Move to the next site if one fails
+        print(" All sites processed. Check data/raw for results.")
+
+    # 3. Execute the full loop
+    asyncio.run(run_all_scrapers(sites_to_scrape))

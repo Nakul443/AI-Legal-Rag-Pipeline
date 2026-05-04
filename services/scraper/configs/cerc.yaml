@@ -3,16 +3,18 @@
 # It includes the base URL, starting URL, and the CSS selectors needed to extract the relevant information from the page.
 # Instead of coding "Look for a table," you just tell the engine where the table is.
 
-
-# configs/cerc.yaml
 site_name: "CERC"
-jurisdiction: "Federal"
+jurisdiction: "Central"
+category: "Orders"
 base_url: "https://cercind.gov.in"
 start_url: "https://cercind.gov.in/recent_orders.html"
+wait_for: "table" # Ensure the table renders before scraping
 
-# These are the CSS selectors Crawl4AI will use
 selectors:
-  row: "table.table tr"         # Every row in the table
-  title: "td:nth-child(3)"      # The 3rd column is usually the title
-  link: "td:nth-child(2) a"     # The link is in the 2nd column
-  date: "td:nth-child(4)"       # The 4th column is the date
+  # Picking tr within tbody to skip header rows
+  row: "table.table tbody tr" 
+  # Title is usually the full text of the third column
+  title: "td:nth-child(3)" 
+  # The link is now often in the 4th column or wrapped in the title
+  link: "td:nth-child(3) a, td:nth-child(4) a" 
+  date: "td:nth-child(2)"

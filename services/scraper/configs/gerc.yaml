@@ -1,0 +1,15 @@
+site_name: "GERC"
+jurisdiction: "State - Gujarat"
+category: "Latest News"
+base_url: "https://www.gercin.org"
+start_url: "https://www.gercin.org/news/"
+wait_for: ".news-list, table" # Support both old and new layouts
+
+selectors:
+  # Broaden row to find links in the news container
+  row: "li.news-item, tr:has(a)" 
+  # Title and Link are usually the same element in GERC news
+  title: "a" 
+  link: "a"
+  # Dates in GERC are often in a span or the first TD
+  date: "span.date, td:nth-child(1)"

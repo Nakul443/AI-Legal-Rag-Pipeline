@@ -1,0 +1,13 @@
+site_name: "CEA"
+jurisdiction: "Central"
+category: "Technical Standards"
+base_url: "https://cea.nic.in"
+start_url: "https://cea.nic.in/quarterly-report/?lang=en"
+
+selectors:
+  # CEA uses standard WordPress-style tables for these reports
+  # The :has(a) pseudo-class is great for filtering out header rows
+  row: "table.table-striped tr:has(a)" 
+  title: "td:nth-child(2)" 
+  link: "td:nth-child(4) a" 
+  date: "td:nth-child(3)"
