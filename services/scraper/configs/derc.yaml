@@ -1,0 +1,23 @@
+site_name: "DERC"
+jurisdiction: "State - Delhi"
+category: "Tariff Orders"
+# UPDATED DOMAIN
+base_url: "https://www.derc.gov.in"
+start_url: "https://www.derc.gov.in/tarriff-orders"
+
+selectors:
+  # Updated for the new table structure
+  row: "table tbody tr"
+  title: "td:nth-child(2)" 
+  link: "td:nth-child(4) a" # The 'Download' column is usually 4th now
+  date: "td:nth-child(3)"
+
+navigation:
+  # Crucial: New site relies on JS to render the table content
+  wait_for: "table"
+  # Standard Drupal-style pagination
+  pagination: "li.next a, li.pager-next a"
+
+metadata_static:
+  authority: "Delhi Electricity Regulatory Commission"
+  document_type: "Tariff Order"

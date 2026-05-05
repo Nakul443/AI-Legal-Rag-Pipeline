@@ -4,6 +4,10 @@
 2. Crawling the target page using AsyncWebCrawler or httpx based on the URL and config
 3. Extracting rows and PDF links
 '''
+
+# main.py calls this file for each site, which then uses the config to determine
+# how to crawl and extract data.
+
 import asyncio
 import os
 from typing import List, Dict, cast

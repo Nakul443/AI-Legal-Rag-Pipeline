@@ -1,0 +1,23 @@
+site_name: "APTEL"
+jurisdiction: "Federal - Appellate"
+category: "Judgments"
+base_url: "https://aptel.gov.in"
+# Focusing on the 2024-2026 judgment gallery
+start_url: "https://aptel.gov.in/judgements/judgments-2026" 
+
+selectors:
+  # APTEL usually lists judgments in a standard responsive table
+  row: "table.table tbody tr"
+  title: "td:nth-child(3)" # Usually the 'Parties Name' or 'Subject'
+  link: "td:nth-child(5) a" # Link to the PDF judgment
+  date: "td:nth-child(4)" # Date of judgment
+  case_number: "td:nth-child(2)"
+
+metadata_static:
+  authority: "Appellate Tribunal for Electricity"
+  document_type: "Judgment"
+
+# Special bypass if they use a view-state redirect
+navigation:
+  wait_for: "table.table"
+  pagination: ".pagination-next"
