@@ -1,3 +1,4 @@
+# models/schema.py
 # One Source of Truth for the entire Lawyer-RAG-Pipeline.
 # Shared by Scraper (Inbound) and Processor (Chunking/Embedding).
 # ensures every document has a unique ID, which is crucial for RAG retrieval and avoiding duplicates in the vector store.
@@ -8,6 +9,44 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
+from enum import Enum
+
+# NEW: Enums to enforce the "Non-Negotiable" naming and tagging rules 
+class Industry(str, Enum):
+    POWER = "POWER"
+    TELECOM = "TELECOM" # Phase 2+ 
+
+class Forum(str, Enum):
+    CERC = "CERC"
+    APTEL = "APTEL"
+    SC = "SUPREME_COURT"
+    HC_DELHI = "HC_DELHI"
+    HC_BOMBAY = "HC_BOMBAY"
+    SERC_MH = "SERC_MAHARASHTRA"
+    SERC_GJ = "SERC_GUJARAT"
+    SERC_KA = "SERC_KARNATAKA"
+    # Added as per Phase 1 scope [cite: 152]
+
+class LegalObjectType(str, Enum):
+    JUDGMENT = "JUDGMENT"
+    INTERIM_ORDER = "INTERIM_ORDER"
+    REGULATION = "REGULATION"
+    AMENDMENT = "AMENDMENT"
+    TARIFF_ORDER = "TARIFF_ORDER"
+    NOTIFICATION = "NOTIFICATION"
+    POLICY = "POLICY"
+    # Defined in Data Organisation Guide [cite: 99]
+
+class LegalIssue(str, Enum):
+    OPEN_ACCESS = "OPEN_ACCESS"
+    CHANGE_IN_LAW = "CHANGE_IN_LAW"
+    TARIFF = "TARIFF"
+    GNA_CONNECTIVITY = "GNA_CONNECTIVITY"
+    DSM = "DSM"
+    CAPTIVE = "CAPTIVE"
+    RPO = "RPO"
+    OTHER = "OTHER"
+    # Defined in Issue Sub-Folders section [cite: 103]
 
 class LegalDocument(BaseModel):
     """Schema for Electricity & Regulatory Infrastructure Data (The Parent File)"""
@@ -28,6 +67,25 @@ class LegalDocument(BaseModel):
     act_year: Optional[int] = None
     issuing_authority: Optional[str] = None # e.g., "Ministry of Power"
 
+    # ──────────────────────────────────────────────────────────────
+    # NEW: FindMyLawyer Mandatory Object Tags
+    # ──────────────────────────────────────────────────────────────
+    industry: Industry = Field(default=Industry.POWER) # D1 
+    authority: Forum # D2 
+    legal_object_type: LegalObjectType # D3 
+    issue_tag_primary: LegalIssue = Field(default=LegalIssue.OTHER) # D4 
+    
+    date_of_order: Optional[str] = None # YYYY-MM-DD [cite: 132]
+    effective_date: Optional[str] = None # For Regulations [cite: 132]
+    state: str = Field(..., description="CENTRAL/MH/GJ/DL/etc.") # [cite: 132]
+    challenge_status: str = Field(default="FINAL") # FINAL/STAYED/etc. [cite: 132]
+    version: int = Field(default=1) # WORM Versioning [cite: 132, 136]
+    duplicate_hash: str # SHA-256 for deduplication [cite: 132, 148]
+
+    # Fields for Deterministic Naming 
+    parties_petitioner: Optional[str] = None 
+    parties_respondent: Optional[str] = None
+
 class LegalChunk(BaseModel):        
     """Schema for individual vector search units (The Child Chunks)"""
     chunk_id: str = Field(..., description="Unique hash for the specific chunk")
@@ -39,6 +97,10 @@ class LegalChunk(BaseModel):
     jurisdiction: str
     act_name: str
     category: Optional[str] = None
+    
+    # NEW: Provenance fields for RAG Retrieval [cite: 126]
+    authority: Forum
+    issue_tag_primary: LegalIssue
     
     # Section-Aware Metadata (Critical for Citations)
     section_header: Optional[str] = None # e.g., "Section 135"

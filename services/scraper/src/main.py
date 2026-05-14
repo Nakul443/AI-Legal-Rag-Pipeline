@@ -1,4 +1,3 @@
-"""
 # "control center"
 # This file will be the main entry point for the scraper service. It will receive a URL from the API, 
 # send it to Crawl4AI (for JS-heavy sites) OR use a lightweight fetcher (for simple PDF discovery),
@@ -6,10 +5,15 @@
 # ties the schema and the Crawl4AI Client together to fetch a document and save it locally for testing before scaling to 100GB data.
 # looks at a website and decides whether to use
 # a simple, fast script or heavy-duty virtual browser
-"""
 
 import os
 import sys
+import uuid
+import asyncio
+import httpx
+import json
+import hashlib
+from datetime import datetime
 from typing import cast
 
 # absolute path to project root
@@ -22,15 +26,10 @@ if project_root not in sys.path:
 if src_dir not in sys.path:
     sys.path.insert(0, src_dir)
 
-import uuid
-from bs4 import BeautifulSoup
-import asyncio
-import httpx
-import json
-
 from models.schema import LegalDocument
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode, CrawlResult
 from collectors.generic_collector import GenericCollector # Updated: Using the generic engine
+from models.schema import LegalDocument, LegalObjectType, LegalIssue # Import the Enums here
 
 # --- LIGHTWEIGHT HELPERS ---
 # Use these for simple sites like India Code to save local resources
@@ -88,17 +87,15 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
     # This enables scaling to 100+ sites by simply adding a YAML config.
     
     collector = GenericCollector(site_key)
-    url = collector.config['start_url']
-    jurisdiction = collector.config['jurisdiction']
-    category = collector.config['category']
+    config = collector.config
+    url = config['start_url']
     
     # Determine which engine to use
     use_browser = force_browser if force_browser is not None else should_use_browser(url)
     
-    print(f" Processing {collector.config['site_name']} Portal: Finding latest documents...")
+    print(f" Processing {config['site_name']} Portal: Finding latest documents...")
     
     # --- ENHANCED BROWSER CONFIG FOR ANTI-BOT ---
-    # Updated: Using try-except for BrowserConfig to handle Crawl4AI version variances
     try:
         browser_config = BrowserConfig(
             headless=True,
@@ -112,13 +109,12 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
         browser_config = BrowserConfig(headless=True)
     
     # Use our generic collector to find links based on YAML selectors
-    # Note: If use_browser is True, the collector uses Crawl4AI inside.
     discovered_docs = await collector.collect_links()
     
     save_dir = os.path.join(project_root, "data", "raw")
     os.makedirs(save_dir, exist_ok=True)
 
-    # Process first 3 discovered items to test the pipeline
+    # Process first discovered item to test the pipeline
     for item in discovered_docs[:1]:
         doc_uid = str(uuid.uuid4())
         pdf_filename = f"{doc_uid}.pdf"
@@ -128,14 +124,28 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
         success = await download_pdf(item['url'], pdf_path)
         
         if success:
-            # Create the structured document with the actual local path
+            # 1. Generate SHA-256 hash for WORM compliance (Rule 01)
+            with open(pdf_path, "rb") as f:
+                file_hash = hashlib.sha256(f.read()).hexdigest()
+
+            # 2. Create the structured document with mandatory tags (Rule 03)
             doc = LegalDocument(
                 uid=doc_uid,
                 title=item['title'], 
                 source_url=item['url'],
-                jurisdiction=jurisdiction,
-                category=category,
-                document_type="Policy/Guideline",
+                jurisdiction=config['jurisdiction'],
+                category=config['category'],
+                document_type="Order",  # Default type, to be refined by orchestrator
+                
+                # Mandatory metadata for D1-D4 classification and Provenance (Rule 02)
+                authority=config['site_name'],
+                legal_object_type=LegalObjectType.JUDGMENT, # Placeholder for orchestrator
+                state=config.get('state', 'CENTRAL'),
+                duplicate_hash=file_hash,
+                issue_tag_primary=LegalIssue.OTHER,
+                date_of_order=datetime.utcnow().strftime('%Y-%m-%d'),
+                version=1,
+                
                 content_markdown=f"LOCAL_PDF_PATH: {pdf_path}" # Signals processor to parse this PDF
             )
             save_doc_locally(doc)
@@ -155,7 +165,6 @@ if __name__ == "__main__":
     config_dir = os.path.join(project_root, "services/scraper/configs")
     
     # 2. Get all .yaml files (mnre, cerc, cea, seci)
-    # This automatically builds your "array" from the files you've created
     sites_to_scrape = [
         f.replace(".yaml", "") 
         for f in os.listdir(config_dir) 
@@ -166,8 +175,7 @@ if __name__ == "__main__":
         print(f" Starting batch scrape for: {', '.join(sites)}")
         for site in sites:
             try:
-                # We await each one so they run sequentially, 
-                # preventing your CPU from exploding with 4 browsers at once.
+                # We await each one so they run sequentially
                 await test_scrape(site)
             except Exception as e:
                 print(f" Failed to scrape {site}: {str(e)}")

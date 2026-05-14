@@ -5,6 +5,7 @@ import json
 import uuid
 import asyncio 
 import re
+import hashlib
 
 # --- PATH FIX ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -15,7 +16,8 @@ if project_root not in sys.path:
 from chunker import DocumentProcessor
 from embedder import Embedder
 from vector_store import VectorStore
-from models.schema import LegalDocument
+# UPDATED: Import the enums to satisfy the new type-safe schema
+from models.schema import LegalDocument, LegalObjectType, LegalIssue
 from pdf_processor import PDFProcessor
 
 def enrich_metadata(title: str, text: str) -> dict:
@@ -59,8 +61,13 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
         print(f" Skipping: No text content found in {pdf_path}")
         return False
 
+    # Generate hash for WORM compliance required by the new schema
+    with open(pdf_path, "rb") as f:
+        file_hash = hashlib.sha256(f.read()).hexdigest()
+
     legal_meta = enrich_metadata(scraped_data['title'], raw_text)
 
+    # UPDATED: Mapping fields to the new schema requirements
     doc = LegalDocument(
         uid=scraped_data['uid'],
         title=scraped_data['title'],
@@ -68,25 +75,34 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
         jurisdiction=scraped_data.get('jurisdiction', 'India'),
         category=scraped_data.get('category', legal_meta['category']),
         document_type="Act",
-        source_url=scraped_data.get('url', 'N/A'), 
+        source_url=scraped_data.get('source_url', 'N/A'), 
         act_name=legal_meta['act_name'],
         act_year=legal_meta['act_year'],
-        issuing_authority=scraped_data.get('source', legal_meta['authority'])
+        issuing_authority=scraped_data.get('authority', legal_meta['authority']),
+        
+        # Mandatory fields added to schema.py (Enums used where required)
+        authority=scraped_data.get('authority', "UNKNOWN"),
+        legal_object_type=LegalObjectType.JUDGMENT, # Placeholder, will be updated by router
+        state=scraped_data.get('state', "CENTRAL"),
+        issue_tag_primary=LegalIssue.OTHER,         # Placeholder, will be updated by router
+        duplicate_hash=file_hash,
+        date_of_order=scraped_data.get('date_of_order', "2024-01-01"),
+        version=1
     )
 
     processor = DocumentProcessor(chunk_size=1500, chunk_overlap=200)
     records = processor.prepare_for_lancedb(doc)
-    
+
     embedder = Embedder()
     vdb = VectorStore()
-    
+
     texts = [r.text for r in records]
     # Reduced batch size to stay safer with token limits
     batch_size = 30 
-    
+
     print(f" Embedding {len(texts)} chunks in batches of {batch_size}...")
     all_vectors = []
-    
+
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
         
