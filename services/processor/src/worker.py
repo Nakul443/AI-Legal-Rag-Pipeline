@@ -6,6 +6,7 @@ import uuid
 import asyncio 
 import re
 import hashlib
+import shutil  # Added for moving files to organized storage
 
 # --- PATH FIX ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -19,6 +20,7 @@ from vector_store import VectorStore
 # UPDATED: Import the enums to satisfy the new type-safe schema
 from models.schema import LegalDocument, LegalObjectType, LegalIssue
 from pdf_processor import PDFProcessor
+from data_orchestrator import DataOrchestrator # Import the orchestrator
 
 def enrich_metadata(title: str, text: str) -> dict:
     """Extracts Act Name, Year, and Category from text/title."""
@@ -51,6 +53,10 @@ def enrich_metadata(title: str, text: str) -> dict:
 async def process_discovered_pair(json_path: str, pdf_path: str):
     print(f"\n Processing: {os.path.basename(pdf_path)}")
     
+    # Initialize Orchestrator (Base storage at project root/fml-raw-legal-store)
+    storage_root = os.path.join(project_root, "fml-raw-legal-store")
+    orchestrator = DataOrchestrator(storage_root)
+
     with open(json_path, 'r', encoding='utf-8') as f:
         scraped_data = json.load(f)
 
@@ -89,6 +95,19 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
         date_of_order=scraped_data.get('date_of_order', "2024-01-01"),
         version=1
     )
+
+    # 1. ORCHESTRATION: Classify and Route
+    # This automatically updates D3/D4 tags and builds the deterministic path
+    doc = orchestrator.route_document(doc)
+
+    # 2. PHYSICAL STORAGE: Copy file to the deterministic library path
+    # FIX: Ensure file_path_s3 is not None for os.path.join
+    s3_path = doc.file_path_s3 or "unclassified/unknown.pdf"
+    final_abs_path = os.path.join(storage_root, s3_path)
+    
+    os.makedirs(os.path.dirname(final_abs_path), exist_ok=True)
+    shutil.copy2(pdf_path, final_abs_path) 
+    print(f" -> Organized to: {s3_path}")
 
     processor = DocumentProcessor(chunk_size=1500, chunk_overlap=200)
     records = processor.prepare_for_lancedb(doc)
