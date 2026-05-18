@@ -10,6 +10,7 @@ import lancedb
 import os
 import pandas as pd
 import numpy as np # Added for vector type casting
+from enum import Enum  # Added to check and serialize the new schema enums safely
 from dotenv import load_dotenv
 from typing import Optional
 
@@ -46,6 +47,12 @@ class VectorStore:
             if "vector" in flat_record and flat_record["vector"] is not None:
                 flat_record["vector"] = np.array(flat_record["vector"], dtype=np.float32)
             
+            # FIX: Convert any Enum objects (like LegalObjectType or LegalIssue) to their string values
+            # so LanceDB can index and filter them as standard text columns.
+            for key, value in flat_record.items():
+                if isinstance(value, Enum):
+                    flat_record[key] = value.value
+
             processed_records.append(flat_record)
 
         df = pd.DataFrame(processed_records)
