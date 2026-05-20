@@ -5,6 +5,7 @@
 
 import os
 import sys
+import time
 from embedder import Embedder
 from vector_store import VectorStore
 from google import genai 
@@ -34,7 +35,7 @@ def run_test_query(query_text: str):
 
     # 3. Search LanceDB
     print("Searching LanceDB...")
-    results = vdb.query(query_vector, limit=3) 
+    results = vdb.query(query_vector, limit=10) 
 
     # 4. Display Results and Generate Answer
     if not results:
@@ -66,16 +67,27 @@ def run_test_query(query_text: str):
         ANSWER:
         """
 
+        # Added defensive retry mechanism to absorb upstream 503 high-demand spikes gracefully
+        response = None
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt
+                )
+                break  # Success! Break out of the retry loop
+            except Exception as e:
+                if "503" in str(e) and attempt < 2:
+                    print(f" ⏳ Upstream model busy (503). Retrying in 3s... (Attempt {attempt+1}/3)")
+                    time.sleep(3)
+                else:
+                    raise e
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-
-        print("="*40)
-        print("FINAL AI ANSWER:")
-        print(response.text)
-        print("="*40)
+        if response:
+            print("="*40)
+            print("FINAL AI ANSWER:")
+            print(response.text)
+            print("="*40)
 
         # Optional: Print sources for verification
         print("\nSources used (Metadata Check):")
@@ -83,9 +95,10 @@ def run_test_query(query_text: str):
             # FIXED: title is now act_name
             name = row.get('act_name', 'Unknown')
             section = row.get('section_header', 'N/A')
+            # FIX: Ensure dictionary look up for distance score to prevent AttributeError
             score = row.get('_distance', 0.0)
             print(f"- {name} [{section}] (Score: {score:.4f})")
 
 if __name__ == "__main__":
-    # Test with a question related to your Karnataka Solar Policy file
-    run_test_query("What are the main objectives of the solar policy?")
+    # Test with a question related to your Maharashtra Open Access Regulations
+    run_test_query("How is open access categorized based on duration according to the regulations?")

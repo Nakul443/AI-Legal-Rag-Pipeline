@@ -1,3 +1,23 @@
+# air traffic controller of legal data factory
+
+# 1.
+# When raw scrapers dump unstructured legal PDFs into your system,
+# the orchestrator's job is to enforce your file structure standards automatically.
+
+# 2. 
+# It scans the document's title and the first couple of thousand characters of text
+# to automatically tag its legal dimensions:
+# Legal Object Type (D3): It checks if the document is a JUDGMENT, REGULATION, TARIFF_ORDER, or AMENDMENT.
+# Legal Issue Primary Tag (D4): It identifies the core core subject matter,
+# such as OPEN_ACCESS, CHANGE_IN_LAW, TARIFF, RPO, or DSM.
+
+# 3.
+# Once it knows the Industry, Authority, State, Object Type, Primary Issue,
+# Cleaned Parties, and Year, it constructs a predictable, standardized path and a permanent filename.
+# Raw Scraped Title: M/s. Adani Power Ltd vs Gujarat Urja Vikas Nigam Limited & Ors 2024
+# Orchestrator Cleaned Parties: ADANI_v_GUVNL
+# deter
+
 import os
 import re
 import hashlib

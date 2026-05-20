@@ -68,14 +68,18 @@ class DocumentProcessor:
             # Prepending context for the Vector model's "understanding"
             enriched_text = f"ACT: {doc.act_name or doc.title}\nSECTION: {header}\n\n{chunk_text}"
 
-            # Creating an actual LegalChunk instance (clears the Pylance warning)
+            # FIXED: Forward mandatory validation fields from parent doc down to LegalChunk
             chunk_obj = LegalChunk(
                 chunk_id=f"{doc.uid}_{index}",
                 parent_id=doc.uid,
                 text=enriched_text,
                 jurisdiction=doc.jurisdiction,
                 act_name=doc.act_name or doc.title,
-                section_header=header
+                section_header=header,
+                
+                # Mandatory metadata forwarded to prevent Pydantic missing field validation errors
+                authority=doc.authority,
+                issue_tag_primary=doc.issue_tag_primary
             )
             
             legal_chunks.append(chunk_obj)

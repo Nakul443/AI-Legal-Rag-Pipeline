@@ -1,4 +1,16 @@
 # factory_manager.py
+# Scans the `data/raw` folder and matches every raw `.json` metadata file with its corresponding `.pdf` legal document.
+# Extracts the text from the PDF and passes it to the `DataOrchestrator` to auto-tag the exact legal category, issues, and clean party names.
+# Splits the extracted legal text into smaller, clean, uniform paragraphs (chunks) so the AI doesn't get overwhelmed by massive pages.
+# Converts those text chunks into numerical vectors (embeddings) that capture the underlying semantic legal meaning.
+# Saves those vectors along with their matching structured metadata fields directly into LanceDB database table.
+
+# Scans the `data/raw` folder and matches every raw `.json` metadata file with its corresponding `.pdf` legal document.
+# Extracts the text from the PDF and passes it to the `DataOrchestrator` to auto-tag the exact legal category, issues, and clean party names.
+# Splits the extracted legal text into smaller, clean, uniform paragraphs (chunks) so the AI doesn't get overwhelmed by massive pages.
+# Converts those text chunks into numerical vectors (embeddings) that capture the underlying semantic legal meaning.
+# Saves those vectors along with their matching structured metadata fields directly into LanceDB database table.
+
 import os
 import sys
 import json
@@ -18,9 +30,9 @@ from chunker import DocumentProcessor
 from embedder import Embedder
 from vector_store import VectorStore
 # UPDATED: Import the enums to satisfy the new type-safe schema
-from models.schema import LegalDocument, LegalObjectType, LegalIssue
+from models.schema import LegalDocument, LegalObjectType, LegalIssue, Forum
 from pdf_processor import PDFProcessor
-from data_orchestrator import DataOrchestrator # Import the orchestrator
+from data_orchestrator import DataOrchestrator  # Import the orchestrator
 
 def enrich_metadata(title: str, text: str) -> dict:
     """Extracts Act Name, Year, and Category from text/title."""
@@ -73,6 +85,13 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
 
     legal_meta = enrich_metadata(scraped_data['title'], raw_text)
 
+    # FIXED: Resolve pure string or default fallback value to strict type-safe Forum enum
+    raw_authority = scraped_data.get('authority', 'CERC')
+    if hasattr(Forum, str(raw_authority)):
+        validated_authority = getattr(Forum, str(raw_authority))
+    else:
+        validated_authority = Forum.CERC
+
     # UPDATED: Mapping fields to the new schema requirements
     doc = LegalDocument(
         uid=scraped_data['uid'],
@@ -84,10 +103,10 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
         source_url=scraped_data.get('source_url', 'N/A'), 
         act_name=legal_meta['act_name'],
         act_year=legal_meta['act_year'],
-        issuing_authority=scraped_data.get('authority', legal_meta['authority']),
+        issuing_authority=str(raw_authority),
         
         # Mandatory fields added to schema.py (Enums used where required)
-        authority=scraped_data.get('authority', "UNKNOWN"),
+        authority=validated_authority,
         legal_object_type=LegalObjectType.JUDGMENT, # Placeholder, will be updated by router
         state=scraped_data.get('state', "CENTRAL"),
         issue_tag_primary=LegalIssue.OTHER,         # Placeholder, will be updated by router
@@ -99,6 +118,16 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
     # 1. ORCHESTRATION: Classify and Route
     # This automatically updates D3/D4 tags and builds the deterministic path
     doc = orchestrator.route_document(doc)
+
+    # FIXED: Double check if orchestrator path mutation stripped validation enum fields or downgraded them to pure strings
+    if not isinstance(doc.authority, Forum):
+        if hasattr(Forum, str(doc.authority)):
+            doc.authority = getattr(Forum, str(doc.authority))
+        else:
+            doc.authority = Forum.CERC
+
+    if not doc.issue_tag_primary:
+        doc.issue_tag_primary = LegalIssue.OTHER
 
     # 2. PHYSICAL STORAGE: Copy file to the deterministic library path
     # FIX: Ensure file_path_s3 is not None for os.path.join
@@ -121,6 +150,7 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
 
     print(f" Embedding {len(texts)} chunks in batches of {batch_size}...")
     all_vectors = []
+    quota_exhausted = False
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
@@ -129,20 +159,35 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
             vectors = embedder.get_embeddings(batch)
             all_vectors.extend(vectors)
         except Exception as e:
-            # Check for Rate Limit Error (429)
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                print(" ⏳ Quota hit! Sleeping 60s to reset Gemini Free Tier limit...")
-                await asyncio.sleep(60)
-                # Retry once after sleep
-                vectors = embedder.get_embeddings(batch)
-                all_vectors.extend(vectors)
+            err_msg = str(e)
+            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                # Check if it's a daily limit wall or just a per-minute blip
+                if "quota" in err_msg.lower() or "plan and billing" in err_msg.lower():
+                    print("\n🛑 Daily Free Tier Embedding Quota (1,000 requests) completely exhausted!")
+                    print("Please wait for your daily window to reset or upgrade to a pay-as-you-go key.")
+                    quota_exhausted = True
+                    break
+                else:
+                    print(" ⏳ Per-minute RPM limit hit! Sleeping 60s to reset Gemini limit...")
+                    await asyncio.sleep(60)
+                    try:
+                        vectors = embedder.get_embeddings(batch)
+                        all_vectors.extend(vectors)
+                    except Exception as retry_err:
+                        print(f" Retry failed after sleeping: {retry_err}")
+                        quota_exhausted = True
+                        break
             else:
                 raise e
         
         # Mandatory delay between batches to stay under the 100 RPM limit
-        # 1.5s ensures we never exceed ~40 requests per minute
         await asyncio.sleep(1.5) 
     
+    # If we had to abort due to daily quota limits, stop the processing chain
+    if quota_exhausted or len(all_vectors) != len(records):
+        print(f" ❌ Aborting indexing for: {legal_meta['act_name']} due to embedding limits.")
+        return False
+
     for i, record in enumerate(records):
         record.vector = all_vectors[i]
 
@@ -190,4 +235,4 @@ async def run_discovery_and_ingest(limit=None):
 
 if __name__ == "__main__":
     # Change to limit=None when you're ready to ingest the whole folder
-    asyncio.run(run_discovery_and_ingest(limit=1))
+    asyncio.run(run_discovery_and_ingest(limit=None))

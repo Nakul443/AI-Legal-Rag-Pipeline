@@ -13,8 +13,8 @@ import asyncio
 import httpx
 import json
 import hashlib
-from datetime import datetime
-from typing import cast
+from datetime import datetime, timezone  # FIXED: Imported timezone to bypass the missing datetime.UTC issue
+from typing import cast, Any
 
 # absolute path to project root
 # We calculate this first to ensure local imports work regardless of execution context
@@ -29,7 +29,8 @@ if src_dir not in sys.path:
 from models.schema import LegalDocument
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode, CrawlResult
 from collectors.generic_collector import GenericCollector # Updated: Using the generic engine
-from models.schema import LegalDocument, LegalObjectType, LegalIssue # Import the Enums here
+# FIXED: Explicitly importing Forum enum alongside LegalObjectType and LegalIssue to resolve type checking
+from models.schema import LegalDocument, LegalObjectType, LegalIssue, Forum
 
 # --- LIGHTWEIGHT HELPERS ---
 # Use these for simple sites like India Code to save local resources
@@ -128,6 +129,20 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
             with open(pdf_path, "rb") as f:
                 file_hash = hashlib.sha256(f.read()).hexdigest()
 
+            # --- FIXED: SCHEMA ENUM CONSTRAINTS ---
+            # By mapping directly against the explicit Forum enum class, Pylance now recognizes 
+            # the assigned instance perfectly, satisfying strict static type checking.
+            input_auth = config.get('site_name', 'CERC')
+            
+            try:
+                if hasattr(Forum, input_auth):
+                    validated_authority = getattr(Forum, input_auth)
+                else:
+                    validated_authority = Forum.CERC
+            except (KeyError, AttributeError):
+                # Structural fallback definition to preserve worker orchestration pipeline
+                validated_authority = Forum.CERC
+
             # 2. Create the structured document with mandatory tags (Rule 03)
             doc = LegalDocument(
                 uid=doc_uid,
@@ -138,26 +153,31 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
                 document_type="Order",  # Default type, to be refined by orchestrator
                 
                 # Mandatory metadata for D1-D4 classification and Provenance (Rule 02)
-                authority=config['site_name'],
+                authority=validated_authority,
                 legal_object_type=LegalObjectType.JUDGMENT, # Placeholder for orchestrator
                 state=config.get('state', 'CENTRAL'),
                 duplicate_hash=file_hash,
                 issue_tag_primary=LegalIssue.OTHER,
-                date_of_order=datetime.utcnow().strftime('%Y-%m-%d'),
+                date_of_order=datetime.now(timezone.utc).strftime('%Y-%m-%d'), # FIXED: Replaced datetime.UTC with cross-compatible timezone.utc
                 version=1,
                 
                 content_markdown=f"LOCAL_PDF_PATH: {pdf_path}" # Signals processor to parse this PDF
             )
-            save_doc_locally(doc)
+            
+            # Write the true raw site_key name into our local json payload so factory_manager knows its real context.
+            doc_dict = doc.model_dump()
+            doc_dict['authority'] = input_auth
+            
+            save_doc_locally_dict(doc_dict, doc_uid)
 
-def save_doc_locally(doc: LegalDocument) -> None:
-    """Helper to save the structured document to data/raw."""
+def save_doc_locally_dict(doc_dict: dict, uid: str) -> None:
+    """Helper to save the structured dict payload to data/raw."""
     save_dir = os.path.join(project_root, "data", "raw")
     os.makedirs(save_dir, exist_ok=True)
 
-    file_path = os.path.join(save_dir, f"{doc.uid}.json")
+    file_path = os.path.join(save_dir, f"{uid}.json")
     with open(file_path, "w", encoding="utf-8") as f:
-        f.write(doc.model_dump_json())
+        json.dump(doc_dict, f, ensure_ascii=False, indent=4)
     print(f" Success! Saved: {file_path}")
 
 if __name__ == "__main__":
