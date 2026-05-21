@@ -1,11 +1,18 @@
 # logic that will take a 100-page legal document, break it into small "chunks," and prepare it for embedding.
 
+# [FIX] ADDED FUNCTIONALITIES COMMENTS:
+# 1. Added duplicate_hash field forwarding in prepare_for_lancedb(): each LegalChunk now carries
+#    the parent document's SHA-256 hash. This is required because worker.py's WORM pre-flight check
+#    queries LanceDB with .where("duplicate_hash == '...'") — if the column doesn't exist in the
+#    stored chunks, that query always returns empty and deduplication never runs.
+# 2. Added category forwarding: LegalChunk.category is Optional in schema but was never populated,
+#    losing the category enrichment computed in worker.py's enrich_metadata() for every chunk.
+
 import os
 import sys
 import re
 from typing import List
 from models.schema import LegalDocument, LegalChunk
-
 # --- PATH FIX: Ensures it can find schema.py in the same directory ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -60,7 +67,6 @@ class DocumentProcessor:
         for index, item in enumerate(raw_chunks):
             chunk_text = item["text"]
             header = item["header"]
-
             if not chunk_text.strip():
                 continue
 
@@ -79,7 +85,23 @@ class DocumentProcessor:
                 
                 # Mandatory metadata forwarded to prevent Pydantic missing field validation errors
                 authority=doc.authority,
-                issue_tag_primary=doc.issue_tag_primary
+                issue_tag_primary=doc.issue_tag_primary,
+
+                # [FIX] Forward category from parent: enrich_metadata() in worker.py computes a
+                # category ("Tariff & Pricing", "Renewable Energy", etc.) and stores it on the
+                # LegalDocument, but it was never copied to chunks. Now every chunk carries it
+                # for vector DB filtering.
+                category=doc.category,
+
+                # [FIX] Forward duplicate_hash from parent document to every chunk.
+                # worker.py's WORM pre-flight check does:
+                #   table.search().where(f"duplicate_hash == '{file_hash}'").limit(1)
+                # This queries the LanceDB law_chunks table. If chunks don't carry duplicate_hash,
+                # the column never exists in the table schema and the query silently returns empty
+                # on every run — meaning no document is ever detected as a duplicate, the WORM
+                # deduplication guarantee (Section 5 & Rule 7) never fires, and every re-scrape
+                # of the same document gets re-embedded and re-indexed.
+                duplicate_hash=doc.duplicate_hash,
             )
             
             legal_chunks.append(chunk_obj)

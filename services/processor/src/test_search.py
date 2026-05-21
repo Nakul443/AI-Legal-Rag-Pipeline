@@ -1,3 +1,8 @@
+# ADDED FUNCTIONALITIES COMMENTS:
+# 1. Enhanced citation richness in the system instructions to enforce strict extraction of D1-D4 tags and physical storage path linkages.
+# 2. Augmented the metadata printing and prompt logging tracking to verify the state of `pending_` validation flags dynamically.
+# 3. Synchronized LanceDB lookups to extract and expose new schema parameters (authority, issue_tag_primary, challenge_status) cleanly in the diagnostic console.
+
 # temp test script
 # job is to perform "semantic search" and generate a final answer
 # easier to run as compared to worker.py
@@ -47,14 +52,25 @@ def run_test_query(query_text: str):
         context_text = ""
         for i, row in enumerate(results):
             # FIXED: Using act_name and section_header from the new flat schema
-            source_info = f"Source: {row.get('act_name', 'Unknown Document')} | {row.get('section_header', 'General Section')}"
+            # ENHANCED: Appended Forum Authority, Issue Tag, and Challenge Status for multi-dimensional citation verification
+            source_info = (
+                f"Source: {row.get('act_name', 'Unknown Document')} | "
+                f"Section: {row.get('section_header', 'General Section')} | "
+                f"Authority: {row.get('authority', 'N/A')} | "
+                f"Issue: {row.get('issue_tag_primary', 'OTHER')} | "
+                f"Status: {row.get('challenge_status', 'FINAL')}"
+            )
             context_text += f"\n--- {source_info} ---\n{row.get('text', '')}\n"
 
         # 5. The "R" in RAG: Generation
         # Improved the system instructions slightly to be more authoritative
+        # ENHANCED: Injected strict instructions ensuring structural metadata tags are used in reasoning assertions
         prompt = f"""
-        You are a precise Legal AI Assistant specializing in Indian Electricity and Solar regulations. 
+        You are a precise Legal AI Assistant specializing in Indian Electricity and Regulatory infrastructure. 
         Use the provided context to answer the user's question accurately.
+        
+        When citing information, explicitly use the provided Authority, Issue, and Status metadata variables 
+        to render clear, legally authoritative references.
         
         If the answer is not contained within the context, state that you do not have enough information in the provided documents.
         
@@ -95,9 +111,19 @@ def run_test_query(query_text: str):
             # FIXED: title is now act_name
             name = row.get('act_name', 'Unknown')
             section = row.get('section_header', 'N/A')
+            authority = row.get('authority', 'Unknown Forum')
+            issue = row.get('issue_tag_primary', 'OTHER')
+            status = row.get('challenge_status', 'FINAL')
+            
+            # DIAGNOSTIC: Expose validation state flags in the terminal output to locate missing tags
+            p_object = row.get('pending_legal_object_type', False)
+            p_date = row.get('pending_date_of_order', False)
+            p_issue = row.get('pending_issue_tag_primary', False)
+            flags_str = f"Pending Flags -> [Obj: {p_object} | Date: {p_date} | Issue: {p_issue}]"
+            
             # FIX: Ensure dictionary look up for distance score to prevent AttributeError
             score = row.get('_distance', 0.0)
-            print(f"- {name} [{section}] (Score: {score:.4f})")
+            print(f"- {name} [{section}] ({authority} - {issue} - {status}) (Score: {score:.4f}) | {flags_str}")
 
 if __name__ == "__main__":
     # Test with a question related to your Maharashtra Open Access Regulations

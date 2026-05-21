@@ -52,9 +52,5 @@ class Embedder:
 
 #     def get_embeddings(self, text_list: list[str]):
 #         """Converts a batch of text chunks into vectors."""
-#         response = self.client.embeddings.create(
-#             input=text_list,
-#             model=self.model
-#         )
 #         # Extract just the vector data from the response
 #         return [data.embedding for data in response.data]

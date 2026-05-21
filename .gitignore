@@ -46,3 +46,5 @@ processed/
 logs/
 *.log
 error_reports/
+
+fml-raw-legal-store

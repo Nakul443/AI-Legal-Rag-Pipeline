@@ -1,3 +1,12 @@
+# ADDED FUNCTIONALITIES COMMENTS:
+# 1. Added validation states and Enum values to align with Section 4.1 for fast-lookup tracking. 
+# 2. Added ChallengeStatus Enum to eliminate loose string assignments for 'FINAL', 'UNDER_APPEAL', 'STAYED', and 'REMANDED'. 
+# 3. Added boolean flags 'pending_[fieldname]' initialized dynamically to satisfy the Section 4.2 metadata requirement when a field is null at scrape time.
+# 4. [FIX] Added Section 4.1 scrape-time fields missing from original: source_domain, scrape_date, pipeline_version, file_size_bytes.
+# 5. [FIX] Added WRIT to LegalIssue enum — required by Section 2.2 for HIGH_COURTS/JUDGMENTS sub-folders.
+# 6. [FIX] Added pending_source_url flag — source_url is the primary provenance field per Section 4.1 Rule 02.
+# 7. [FIX] Expanded Forum enum with
+
 # models/schema.py
 # One Source of Truth for the entire Lawyer-RAG-Pipeline.
 # Shared by Scraper (Inbound) and Processor (Chunking/Embedding).
@@ -5,9 +14,8 @@
 # The UID can be generated as a hash of the source URL or a combination of title and published date.
 # This schema also includes fields for categorization (jurisdiction, category, document type) and metadata (tags, file path in S3) to enhance the filtering capabilities during retrieval.
 # helps for easy filtering of data; if a scraper or processor misses a field, an error will be thrown.
-
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
 
@@ -25,7 +33,9 @@ class Forum(str, Enum):
     SERC_MH = "SERC_MAHARASHTRA"
     SERC_GJ = "SERC_GUJARAT"
     SERC_KA = "SERC_KARNATAKA"
-    # Added as per Phase 1 scope [cite: 152]
+    SERC_RJ = "SERC_RAJASTHAN"
+    SERC_TN = "SERC_TAMIL_NADU"
+    # Added as per Phase 1 scope
 
 class LegalObjectType(str, Enum):
     JUDGMENT = "JUDGMENT"
@@ -35,7 +45,7 @@ class LegalObjectType(str, Enum):
     TARIFF_ORDER = "TARIFF_ORDER"
     NOTIFICATION = "NOTIFICATION"
     POLICY = "POLICY"
-    # Defined in Data Organisation Guide [cite: 99]
+    # Defined in Data Organisation Guide
 
 class LegalIssue(str, Enum):
     OPEN_ACCESS = "OPEN_ACCESS"
@@ -44,9 +54,19 @@ class LegalIssue(str, Enum):
     GNA_CONNECTIVITY = "GNA_CONNECTIVITY"
     DSM = "DSM"
     CAPTIVE = "CAPTIVE"
+    SCHEDULING_FORECASTING = "SCHEDULING_FORECASTING"
+    BANK_GUARANTEE = "BANK_GUARANTEE"
     RPO = "RPO"
+    WRIT = "WRIT"  # [FIX] Added: Section 2.2 explicitly lists WRIT as a sub-folder for HIGH_COURTS/JUDGMENTS
     OTHER = "OTHER"
-    # Defined in Issue Sub-Folders section [cite: 103]
+    # Defined in Issue Sub-Folders section
+
+class ChallengeStatus(str, Enum):
+    FINAL = "FINAL"
+    UNDER_APPEAL = "UNDER_APPEAL"
+    STAYED = "STAYED"
+    REMANDED = "REMANDED"
+    # Defined in Object Tags section
 
 class LegalDocument(BaseModel):
     """Schema for Electricity & Regulatory Infrastructure Data (The Parent File)"""
@@ -68,6 +88,17 @@ class LegalDocument(BaseModel):
     issuing_authority: Optional[str] = None # e.g., "Ministry of Power"
 
     # ──────────────────────────────────────────────────────────────
+    # [FIX] Section 4.1: Scrape-time fields that were missing from original schema.
+    # These are populated by generic_collector.save_to_raw() and must be present
+    # before the document reaches DataOrchestrator. Without them, Section 4.1's
+    # "traceable provenance chain" requirement cannot be satisfied.
+    # ──────────────────────────────────────────────────────────────
+    source_domain: Optional[str] = None        # e.g., "cercind.gov.in" — domain of the scraped URL
+    scrape_date: Optional[str] = None          # ISO timestamp of when the scraper fetched this doc
+    pipeline_version: Optional[str] = None     # e.g., "1.0" — version of the ingestion pipeline
+    file_size_bytes: Optional[int] = None      # Raw PDF byte size, set after download
+
+    # ──────────────────────────────────────────────────────────────
     # NEW: FindMyLawyer Mandatory Object Tags
     # ──────────────────────────────────────────────────────────────
     industry: Industry = Field(default=Industry.POWER) # D1 
@@ -75,16 +106,40 @@ class LegalDocument(BaseModel):
     legal_object_type: LegalObjectType # D3 
     issue_tag_primary: LegalIssue = Field(default=LegalIssue.OTHER) # D4 
     
-    date_of_order: Optional[str] = None # YYYY-MM-DD [cite: 132]
-    effective_date: Optional[str] = None # For Regulations [cite: 132]
-    state: str = Field(..., description="CENTRAL/MH/GJ/DL/etc.") # [cite: 132]
-    challenge_status: str = Field(default="FINAL") # FINAL/STAYED/etc. [cite: 132]
-    version: int = Field(default=1) # WORM Versioning [cite: 132, 136]
-    duplicate_hash: str # SHA-256 for deduplication [cite: 132, 148]
+    date_of_order: Optional[str] = None # YYYY-MM-DD
+    effective_date: Optional[str] = None # For Regulations
+    state: Optional[str] = Field(default=None, description="CENTRAL/MH/GJ/DL/etc.") # FIXED: Changed from required to Optional to prevent pre-flight instantiation crashes before Orchestrator cleanup
+    challenge_status: ChallengeStatus = Field(default=ChallengeStatus.FINAL) #
+    version: int = Field(default=1) # WORM Versioning
+    duplicate_hash: str # SHA-256 for deduplication
 
     # Fields for Deterministic Naming 
     parties_petitioner: Optional[str] = None 
     parties_respondent: Optional[str] = None
+
+    # ──────────────────────────────────────────────────────────────
+    # NEW: Section 4.2 Automation Verification Layer (Tracking Unpopulated Values)
+    # ──────────────────────────────────────────────────────────────
+    pending_source_url: bool = Field(default=False)        # [FIX] source_url is Rule 02's primary provenance field — must be tracked
+    pending_legal_object_type: bool = Field(default=False)
+    pending_date_of_order: bool = Field(default=False)
+    pending_state: bool = Field(default=False)
+    pending_version: bool = Field(default=False)
+    pending_effective_date: bool = Field(default=False)
+    pending_issue_tag_primary: bool = Field(default=False)
+    pending_parties_petitioner: bool = Field(default=False)
+    pending_parties_respondent: bool = Field(default=False)
+    pending_challenge_status: bool = Field(default=False)
+    # Auto-tags tracking pending states
+
+    @classmethod
+    def from_dynamic_input(cls, data: Dict[str, Any]) -> "LegalDocument":
+        """
+        Dynamic initialization factory that cleanly instantiates the schema model
+        from raw unstructured dictionary fields while preserving strict validation.
+        """
+        return cls(**data)
+
 
 class LegalChunk(BaseModel):        
     """Schema for individual vector search units (The Child Chunks)"""
@@ -98,7 +153,7 @@ class LegalChunk(BaseModel):
     act_name: str
     category: Optional[str] = None
     
-    # NEW: Provenance fields for RAG Retrieval [cite: 126]
+    # NEW: Provenance fields for RAG Retrieval
     authority: Forum
     issue_tag_primary: LegalIssue
     
@@ -107,5 +162,11 @@ class LegalChunk(BaseModel):
     section_title: Optional[str] = None  # e.g., "Theft of Electricity"
     page_number: Optional[int] = None
     
+    # [FIX] Forwarded from parent LegalDocument so the LanceDB law_chunks table carries this column.
+    # worker.py's WORM pre-flight check queries .where("duplicate_hash == '...'") against this table.
+    # Without this field, the column never exists in the schema, the query always returns empty,
+    # and deduplication never runs. Every re-scrape of the same document gets re-indexed.
+    duplicate_hash: Optional[str] = None # SHA-256 of parent PDF — inherited for WORM dedup queries
+
     # Enrichment
     summary: Optional[str] = None # A 1-sentence LLM summary of the chunk
