@@ -185,6 +185,7 @@ class DataOrchestrator:
         # NOTE: We use forum_enum.name (the Python key, e.g., "SC") not forum_enum.value
         # (the storage string, e.g., "SUPREME_COURT") for the path-building switch below.
         # This is intentional — the name keys are shorter and map cleanly to the if/elif branches.
+        # This approach ensures absolute alignment with the structural definitions.
         auth_name_key = forum_enum.name.upper()
         
         # Parse segments using clean Enum names to make structural lookups precise
@@ -244,15 +245,25 @@ class DataOrchestrator:
             path = os.path.join(Industry.POWER.value, *forum_segments, "REVIEW_PETITIONS")
             return path.upper()
 
-        raw_issue_val = doc.issue_tag_primary.value if hasattr(doc.issue_tag_primary, 'value') else str(doc.issue_tag_primary)
-
-        # Sequence multi-dimensional paths cleanly to avoid missing segments
-        path = os.path.join(
-            Industry.POWER.value,
-            *forum_segments,
-            object_folder,
-            raw_issue_val
-        )
+        # [FIX] Issue #2 Hierarchy Alignment Check: Section 2 folder architecture mandates that 
+        # issue sub-folders (D4) belong ONLY inside adjudicatory directories (JUDGMENTS, INTERIM_ORDERS).
+        # Legislative or statutory containers (REGULATIONS, AMENDMENTS, POLICY) are flat lists 
+        # that must never contain nested issue-slicing directories.
+        if doc.legal_object_type in [LegalObjectType.REGULATION, LegalObjectType.AMENDMENT, LegalObjectType.POLICY, LegalObjectType.NOTIFICATION]:
+            path = os.path.join(
+                Industry.POWER.value,
+                *forum_segments,
+                object_folder
+            )
+        else:
+            raw_issue_val = doc.issue_tag_primary.value if hasattr(doc.issue_tag_primary, 'value') else str(doc.issue_tag_primary)
+            # Sequence multi-dimensional paths cleanly to avoid missing segments
+            path = os.path.join(
+                Industry.POWER.value,
+                *forum_segments,
+                object_folder,
+                raw_issue_val
+            )
         return path.upper()
 
     def format_filename(self, doc: LegalDocument) -> str:
@@ -265,14 +276,32 @@ class DataOrchestrator:
         The authority segment for HC documents must use the enum name key (HC_DELHI, HC_BOMBAY)
         not the enum value, to match the Section 3.1 examples exactly.
         """
-        # Clean title for year
-        year_match = re.search(r'\b(19|20)\d{2}\b', doc.title)
-        if year_match:
-            year = year_match.group(0)
-            doc.pending_date_of_order = False
-        else:
-            year = "0000"
+        # [FIX] Issue #1 Multi-stage Dynamic Year Fallback: Instead of defaulting blindly to "0000"
+        # when the title lacks a 4-digit calendar segment, scan sequentially through the document's
+        # date_of_order attribute, and finally execute a text-wide regex inspection on the first 2000 characters.
+        year = None
+        title_year_match = re.search(r'\b(19|20)\d{2}\b', doc.title)
+        
+        if title_year_match:
+            year = title_year_match.group(0)
+        elif doc.date_of_order:
+            # Safely cast date_of_order objects or strings into structural elements
+            date_str = str(doc.date_of_order)
+            date_year_match = re.search(r'\b(19|20)\d{2}\b', date_str)
+            if date_year_match:
+                year = date_year_match.group(0)
+                
+        if not year:
+            # Dynamic lookahead text sweep for notification dates / publication stamps
+            text_sample = doc.content_markdown[:2000].upper()
+            text_year_matches = re.findall(r'\b(19\d{2}|20[0-2]\d)\b', text_sample)
+            year = text_year_matches[0] if text_year_matches else "0000"
+
+        # Update automated compliance tracking state flags dynamically
+        if year == "0000":
             doc.pending_date_of_order = True
+        else:
+            doc.pending_date_of_order = False
         
         # [FIX] Use enum .name for the authority segment in filenames.
         # Section 3.1 examples show: "HC_DELHI_WRIT_..." and "SC_CHANGE_IN_LAW_..."
