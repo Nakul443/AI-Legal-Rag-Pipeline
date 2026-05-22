@@ -79,19 +79,15 @@ def enrich_metadata(title: str, text: str) -> dict:
 async def process_discovered_pair(json_path: str, pdf_path: str):
     print(f"\n Processing: {os.path.basename(pdf_path)}")
     
-    # Initialize Orchestrator (Base storage at project root/fml-raw-legal-store)
     storage_root = os.path.join(project_root, "fml-raw-legal-store")
     orchestrator = DataOrchestrator(storage_root)
     vdb = VectorStore()
 
     # [FIX] Read JSON first so we can check file_size_bytes before touching the PDF.
-    # collector sets file_size_bytes=0 when the PDF download failed. If we try to open
-    # a PDF that was never downloaded, the hash read below crashes with FileNotFoundError.
     with open(json_path, 'r', encoding='utf-8') as f:
         scraped_data = json.load(f)
 
     # [FIX] Early exit when collector flagged a failed PDF download (file_size_bytes == 0).
-    # Previously this wasn't checked and worker attempted to hash/process a non-existent file.
     if scraped_data.get('file_size_bytes', 0) == 0:
         print(f" ⚠️ Skipping {os.path.basename(pdf_path)}: collector recorded file_size_bytes=0 (PDF download failed).")
         return False
@@ -100,16 +96,21 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
     with open(pdf_path, "rb") as f:
         file_hash = hashlib.sha256(f.read()).hexdigest()
 
+    # --- NEW SKIP CHECK ---
+    # Check if this file is already processed and saved in our database.
+    # If yes, skip it immediately to save our embedding limits.
+    if vdb.has_document_hash(file_hash):
+        print(f" -> Skipping: {os.path.basename(pdf_path)} (Already fully embedded and stored in LanceDB)")
+        return True
+
     # SECTION 5 & 7 DEDUPLICATION: Pre-flight check against LanceDB for physical WORM tracking
     try:
-        # Check if the duplicate_hash already exists in the indexed chunks
         table = vdb.db.open_table(vdb.table_name)
         existing_records = table.search().where(f"duplicate_hash == '{file_hash}'").limit(1).to_list()
         if existing_records:
             print(f" ⏩ Skipping ingestion: Document hash matches existing tracking entry ({file_hash}). WORM invariant preserved.")
             return True
     except Exception as db_check_err:
-        # Handle cases where table hasn't been instantiated or schema doesn't exist yet
         pass
 
     pdf_reader = PDFProcessor(pdf_path)
@@ -136,30 +137,21 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
     pending_state = False if scraped_data.get('state') else True
     pending_effective_date = False if scraped_data.get('effective_date') else True
 
-    # [FIX] Validate challenge_status to ChallengeStatus enum explicitly, matching the
-    # same enum-resolution pattern used for Forum above. Raw JSON strings like "FINAL"
-    # can cause silent Pydantic coercion bugs or ValidationErrors depending on Pydantic version.
+    # [FIX] Validate challenge_status to ChallengeStatus enum explicitly
     raw_challenge = str(scraped_data.get('challenge_status', '')).upper()
     if raw_challenge in ChallengeStatus.__members__:
         validated_challenge_status = ChallengeStatus[raw_challenge]
     else:
         validated_challenge_status = ChallengeStatus.FINAL
-    # Mark pending if the collector left it unset (not written to JSON by scraper)
     pending_challenge_status = not bool(scraped_data.get('challenge_status'))
 
-    # [FIX] Track pending_source_url: source_url is Section 4.1 Rule 02's primary provenance
-    # field. It's the only mandatory scrape-time field that had no pending tracking.
-    # The collector now writes 'source_url' correctly, but we still guard against gaps.
+    # [FIX] Track pending_source_url
     raw_source_url = scraped_data.get('source_url', '')
     pending_source_url = not raw_source_url or raw_source_url == 'N/A'
 
     # [FIX] Track pending_date_of_order at construction time, before orchestrator runs.
-    # Previously the "2024-01-01" hardcoded fallback suppressed the flag — now we detect
-    # whether the collector actually recorded a real date or left it as 'N/A'.
     raw_date_of_order = scraped_data.get('date_of_order', '')
     pending_date_of_order = not raw_date_of_order or raw_date_of_order == 'N/A'
-    # Use None instead of the hardcoded placeholder so orchestrator's year regex on the
-    # title is the real source of date_of_order, not a fake "2024-01-01".
     date_of_order_value = raw_date_of_order if not pending_date_of_order else None
 
     # UPDATED: Mapping fields to the new schema requirements
@@ -185,8 +177,7 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
         date_of_order=date_of_order_value,
         version=1,
 
-        # [FIX] Section 4.1 scrape-time fields — added to schema.py but were never passed here.
-        # collector writes all four to the JSON; worker reads and forwards them to the document.
+        # [FIX] Section 4.1 scrape-time fields
         source_domain=scraped_data.get('source_domain', None),
         scrape_date=scraped_data.get('scrape_date', None),
         pipeline_version=scraped_data.get('pipeline_version', None),
@@ -201,7 +192,6 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
     )
 
     # 1. ORCHESTRATION: Classify and Route
-    # This automatically updates D3/D4 tags and builds the deterministic path
     doc = orchestrator.route_document(doc)
 
     # FIXED: Re-verify type safety patterns against Forum constraints without breaking enums
@@ -229,7 +219,6 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
 
     embedder = Embedder()
     texts = [r.text for r in records]
-    # Reduced batch size to stay safer with token limits
     batch_size = 30 
     print(f" Embedding {len(texts)} chunks in batches of {batch_size}...")
     all_vectors = []
@@ -238,35 +227,31 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
         
-        try:
-            vectors = embedder.get_embeddings(batch)
-            all_vectors.extend(vectors)
-        except Exception as e:
-            err_msg = str(e)
-            if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
-                # Check if it's a daily limit wall or just a per-minute blip
-                if "quota" in err_msg.lower() or "plan and billing" in err_msg.lower():
-                    print("\n🛑 Daily Free Tier Embedding Quota (1,000 requests) completely exhausted!")
-                    print("Please wait for your daily window to reset or upgrade to a pay-as-you-go key.")
-                    quota_exhausted = True
-                    break
-                else:
-                    print(" ⏳ Per-minute RPM limit hit! Sleeping 60s to reset Gemini limit...")
-                    await asyncio.sleep(60)
-                    try:
-                        vectors = embedder.get_embeddings(batch)
-                        all_vectors.extend(vectors)
-                    except Exception as retry_err:
-                        print(f" Retry failed after sleeping: {retry_err}")
+        while True:
+            try:
+                vectors = embedder.get_embeddings(batch)
+                all_vectors.extend(vectors)
+                break
+            except Exception as e:
+                err_msg = str(e)
+                if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                    if "quota" in err_msg.lower() or "plan and billing" in err_msg.lower() or "limit" in err_msg.lower():
+                        print("\n🛑 Daily Free Tier Embedding Quota completely exhausted!")
+                        print("Please wait for your daily window to reset or upgrade to a pay-as-you-go key.")
                         quota_exhausted = True
                         break
-            else:
-                raise e
+                    else:
+                        print(" ⏳ Per-minute RPM limit hit! Sleeping 60s to reset Gemini limit...")
+                        await asyncio.sleep(60)
+                        continue
+                else:
+                    raise e
         
-        # Mandatory delay between batches to stay under the 100 RPM limit
-        await asyncio.sleep(1.5) 
+        if quota_exhausted:
+            break
+
+        await asyncio.sleep(2.0) 
     
-    # If we had to abort due to daily quota limits, stop the processing chain
     if quota_exhausted or len(all_vectors) != len(records):
         print(f" ❌ Aborting indexing for: {legal_meta['act_name']} due to embedding limits.")
         return False
@@ -275,18 +260,12 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
         record.vector = all_vectors[i]
 
     # [FIX] upsert_chunks is now the last operation before we declare success.
-    # Previously: cleanup happened here, THEN upsert ran further down — meaning a
-    # failed LanceDB write left no raw file and no indexed record (silent data loss).
-    # Now: upsert runs first; run_discovery_and_ingest() handles cleanup only on True return.
     vdb.upsert_chunks([r.model_dump() for r in records])
     print(f" Indexed in LanceDB: {legal_meta['act_name']}")
     return True
 
 async def run_discovery_and_ingest(limit=None):
-    """
-    Scans data/raw for pairs.
-    :param limit: Number of files to process (None for all).
-    """
+    """Scans data/raw for file pairs."""
     raw_dir = os.path.join(project_root, "data", "raw")
     if not os.path.exists(raw_dir):
         print("Folder data/raw not found.")
@@ -298,7 +277,6 @@ async def run_discovery_and_ingest(limit=None):
         print(" No new data in data/raw.")
         return
 
-    # Apply the limit (e.g., process only 1 for testing)
     to_process = metadata_files[:limit] if limit else metadata_files
     print(f" Found {len(metadata_files)} files. Processing {len(to_process)}.")
 
@@ -312,8 +290,6 @@ async def run_discovery_and_ingest(limit=None):
             success = await process_discovered_pair(json_path, pdf_path)
             
             # [FIX] Cleanup now only runs after confirmed pipeline success (upsert completed).
-            # Previously cleanup ran mid-function after shutil.copy2 but before upsert_chunks,
-            # so a LanceDB failure deleted the source files with nothing indexed.
             if success:
                 try:
                     if os.path.exists(json_path):
@@ -327,5 +303,4 @@ async def run_discovery_and_ingest(limit=None):
             print(f" Missing PDF for {base_name}")
 
 if __name__ == "__main__":
-    # Change to limit=None when you're ready to ingest the whole folder
     asyncio.run(run_discovery_and_ingest(limit=None))

@@ -34,9 +34,26 @@ class VectorStore:
         self.db = lancedb.connect(uri)
         self.table_name = "law_chunks"
 
+    def has_document_hash(self, file_hash: str) -> bool:
+        """
+        Simple check to see if a file hash is already in the database.
+        Returns True if found, False if not.
+        """
+        # If the table does not exist yet, the document is definitely not inside
+        if self.table_name not in self.db.table_names():
+            return False
+            
+        try:
+            table = self.db.open_table(self.table_name)
+            # Look for even just one text chunk matching this file signature
+            results = table.search().where(f"duplicate_hash == '{file_hash}'").limit(1).to_list()
+            return len(results) > 0
+        except Exception:
+            # If any database error happens, safely assume it is not found
+            return False
+
     def upsert_chunks(self, records: list):
         """Standardizes and saves chunks into the LanceDB table."""
-        # Process records to ensure proper vector types and flat structure
         processed_records = []
         for r in records:
             
