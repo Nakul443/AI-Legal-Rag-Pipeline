@@ -11,7 +11,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 .ipynb_checkpoints
-docker-compose.yml
 
 # --- Node.js & Frontend ---
 node_modules/
@@ -39,13 +38,11 @@ processed/
 *.docx
 *.csv
 *.jsonl
-*.md
 .lancedb/
 *.lance
+fml-raw-legal-store/
 
 # --- Logs ---
 logs/
 *.log
 error_reports/
-
-fml-raw-legal-store
