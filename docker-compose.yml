@@ -1,0 +1,12 @@
+services:
+  processor-worker:
+    build: .
+    container_name: legal_processor_worker
+    restart: unless-stopped
+    volumes:
+      # Maps your local codebase adjustments instantly inside the container
+      - .:/app
+      # Captures generated database outputs directly on your hard drive
+      - ./data:/app/data
+    env_file:
+      - .env

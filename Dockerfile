@@ -1,22 +1,22 @@
-# 1. Start with an official Python image
 FROM python:3.11-slim
 
-# 2. Set the working directory inside the container
 WORKDIR /app
 
-# 3. Install basic system dependencies needed for Python packages
+# Install system dependencies for compiling specific vector libraries or binaries
 RUN apt-get update && apt-get install -y \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Copy just your requirements file first (this makes building faster later)
+# Copy python dependencies layout
 COPY requirements.txt .
-
-# 5. Install your Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 6. Copy the rest of your project files into the container
+# Copy the entire workspace structure into the container (/app/services, /app/models, etc.)
 COPY . .
 
-# 7. Tell Docker what command to run by default when it turns on
+# Set PYTHONPATH so Python can easily find cross-service module imports (like models.schema)
+ENV PYTHONPATH=/app:/app/services/processor/src:/app/services/api-rag/src
+
+# Default execution targeted directly at your pipeline entry point
 CMD ["python", "services/processor/src/worker.py"]
