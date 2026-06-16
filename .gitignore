@@ -11,6 +11,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .ipynb_checkpoints
+docker-compose.yml
 
 # --- Node.js & Frontend ---
 node_modules/
