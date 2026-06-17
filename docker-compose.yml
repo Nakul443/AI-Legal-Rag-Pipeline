@@ -4,8 +4,30 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: legal_processor_worker
+    env_file:
+      - .env  # Injects your local environment variables into the container
     volumes:
       # Maps your local host directories directly into the container's active working directory
       - ./data:/app/data
       - ./fml-raw-legal-store:/app/fml-raw-legal-store
     restart: on-failure
+
+
+  # this image will run the API server,
+  # which will be responsible for handling incoming request
+  # and serving responses based on the processed legal data.
+  # It will also have access to the same shared volumes to read from the database
+  # and serve the necessary information.
+  legal_api_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: legal_api_server
+    ports:
+      - "8000:8000"  # Exposes the port to your host machine
+    env_file:
+      - .env  # Injects your local environment variables into the container
+    volumes:
+      - ./fml-raw-legal-store:/app/fml-raw-legal-store  # Shared access to the database
+    command: ["python3", "services/api-rag/src/main.py"]  # <-- OVERRIDES the default worker command!
+    restart: always
