@@ -124,7 +124,7 @@ class GenericCollector:
                         # --- PATCH 2: CLEAN INLINE SCISSOR STRIPPING ---
                         # Prevents global template leaks (like UPERC pulling navigation layout text).
                         # Grabs text strictly from the single matching target node without structural noise.
-                        raw_title = title_el.get_text(space_join=True, strip=True)
+                        raw_title = title_el.get_text(separator=" ", strip=True)
                         if len(raw_title) > 200 or not raw_title:
                             # If selector accidentally captured giant sub-tree block layout, prioritize link anchor text
                             raw_title = link_el.get_text(strip=True) or raw_title[:100] + "..."
