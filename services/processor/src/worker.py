@@ -1,4 +1,4 @@
-# ADDED FUNCTIONALITIES COMMENTS:
+# --- ADDED FUNCTIONALITIES COMMENTS:
 # 1. Added a pre-flight WORM architecture verification check against LanceDB using the document's SHA-256 duplicate_hash.
 # 2. Implemented Section 5 deduplication routing rules: If a file with the same hash exists, it updates or skips without overwriting or generating duplicate files, conforming to Write Once, Read Many principles.
 # 3. Synchronized dynamic schema population with automatic verification state flags for unpopulated attributes before executing database upsertions.
@@ -36,7 +36,7 @@ import re
 import hashlib
 import shutil  # Added for moving files to organized storage
 
-# --- PATH FIX ---
+# Ensure project base directories are appended perfectly across both native host and container environments
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
 if project_root not in sys.path:
@@ -83,11 +83,11 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
     orchestrator = DataOrchestrator(storage_root)
     vdb = VectorStore()
 
-    # [FIX] Read JSON first so we can check file_size_bytes before touching the PDF.
+    # Read JSON first so we can check file_size_bytes before touching the PDF.
     with open(json_path, 'r', encoding='utf-8') as f:
         scraped_data = json.load(f)
 
-    # [FIX] Early exit when collector flagged a failed PDF download (file_size_bytes == 0).
+    # Early exit when collector flagged a failed PDF download (file_size_bytes == 0).
     if scraped_data.get('file_size_bytes', 0) == 0:
         print(f" ⚠️ Skipping {os.path.basename(pdf_path)}: collector recorded file_size_bytes=0 (PDF download failed).")
         return False
@@ -121,7 +121,7 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
 
     legal_meta = enrich_metadata(scraped_data['title'], raw_text)
 
-    # FIXED: Clean key-based parsing to avoid reflection failure inside type-safe Forum enums
+    # Clean key-based parsing to avoid reflection failure inside type-safe Forum enums
     raw_authority = str(scraped_data.get('authority', 'CERC')).upper()
     if raw_authority in Forum.__members__:
         validated_authority = Forum[raw_authority]
@@ -137,7 +137,7 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
     pending_state = False if scraped_data.get('state') else True
     pending_effective_date = False if scraped_data.get('effective_date') else True
 
-    # [FIX] Validate challenge_status to ChallengeStatus enum explicitly
+    # Validate challenge_status to ChallengeStatus enum explicitly
     raw_challenge = str(scraped_data.get('challenge_status', '')).upper()
     if raw_challenge in ChallengeStatus.__members__:
         validated_challenge_status = ChallengeStatus[raw_challenge]
@@ -145,11 +145,11 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
         validated_challenge_status = ChallengeStatus.FINAL
     pending_challenge_status = not bool(scraped_data.get('challenge_status'))
 
-    # [FIX] Track pending_source_url
+    # Track pending_source_url
     raw_source_url = scraped_data.get('source_url', '')
     pending_source_url = not raw_source_url or raw_source_url == 'N/A'
 
-    # [FIX] Track pending_date_of_order at construction time, before orchestrator runs.
+    # Track pending_date_of_order at construction time, before orchestrator runs.
     raw_date_of_order = scraped_data.get('date_of_order', '')
     pending_date_of_order = not raw_date_of_order or raw_date_of_order == 'N/A'
     date_of_order_value = raw_date_of_order if not pending_date_of_order else None
@@ -177,7 +177,7 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
         date_of_order=date_of_order_value,
         version=1,
 
-        # [FIX] Section 4.1 scrape-time fields
+        # Section 4.1 scrape-time fields
         source_domain=scraped_data.get('source_domain', None),
         scrape_date=scraped_data.get('scrape_date', None),
         pipeline_version=scraped_data.get('pipeline_version', None),
@@ -194,7 +194,7 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
     # 1. ORCHESTRATION: Classify and Route
     doc = orchestrator.route_document(doc)
 
-    # FIXED: Re-verify type safety patterns against Forum constraints without breaking enums
+    # Re-verify type safety patterns against Forum constraints without breaking enums
     if not isinstance(doc.authority, Forum):
         raw_doc_auth = str(doc.authority).upper()
         if raw_doc_auth in Forum.__members__:
@@ -206,7 +206,7 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
         doc.issue_tag_primary = LegalIssue.OTHER
 
     # 2. PHYSICAL STORAGE: Copy file to the deterministic library path
-    # FIX: Ensure final absolute routing keys resolve clean directory segments fully without mutating project_root case
+    # Ensure final absolute routing keys resolve clean directory segments fully without mutating project_root case
     s3_path = doc.file_path_s3 or "UNCLASSIFIED/UNKNOWN.PDF"
     final_abs_path = os.path.join(storage_root, s3_path)
     
@@ -253,13 +253,13 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
         await asyncio.sleep(2.0) 
     
     if quota_exhausted or len(all_vectors) != len(records):
-        print(f" ❌ Aborting indexing for: {legal_meta['act_name']} due to embedding limits.")
+        print(f" Aborting indexing for: {legal_meta['act_name']} due to embedding limits.")
         return False
 
     for i, record in enumerate(records):
         record.vector = all_vectors[i]
 
-    # [FIX] upsert_chunks is now the last operation before we declare success.
+    # upsert_chunks is now the last operation before we declare success.
     vdb.upsert_chunks([r.model_dump() for r in records])
     print(f" Indexed in LanceDB: {legal_meta['act_name']}")
     return True
@@ -267,11 +267,16 @@ async def process_discovered_pair(json_path: str, pdf_path: str):
 async def run_discovery_and_ingest(limit=None):
     """Scans data/raw for file pairs."""
     raw_dir = os.path.join(project_root, "data", "raw")
+    
+    # Fallback initialization patch for virtualized container runtimes
     if not os.path.exists(raw_dir):
-        print("Folder data/raw not found.")
-        return
+        os.makedirs(raw_dir, exist_ok=True)
 
-    metadata_files = [f for f in os.listdir(raw_dir) if f.endswith(".json")]
+    try:
+        metadata_files = [f for f in os.listdir(raw_dir) if f.endswith(".json")]
+    except Exception as e:
+        print(f"Folder data/raw could not be scanned: {e}")
+        return
     
     if not metadata_files:
         print(" No new data in data/raw.")
@@ -282,14 +287,14 @@ async def run_discovery_and_ingest(limit=None):
 
     for meta_file in to_process:
         json_path = os.path.join(raw_dir, meta_file)
-        # FIXED: Using dynamic non-hardcoded parsing logic to handle variant suffixes cleanly
+        # Using dynamic non-hardcoded parsing logic to handle variant suffixes cleanly
         base_name = meta_file.rsplit('.', 1)[0]
         pdf_path = os.path.join(raw_dir, f"{base_name}.pdf")
 
         if os.path.exists(pdf_path):
             success = await process_discovered_pair(json_path, pdf_path)
             
-            # [FIX] Cleanup now only runs after confirmed pipeline success (upsert completed).
+            # Cleanup now only runs after confirmed pipeline success (upsert completed).
             if success:
                 try:
                     if os.path.exists(json_path):

@@ -13,7 +13,7 @@ import asyncio
 import httpx
 import json
 import hashlib
-from datetime import datetime, timezone  # FIXED: Imported timezone to bypass the missing datetime.UTC issue
+from datetime import datetime, timezone
 from typing import cast, Any
 
 # absolute path to project root
@@ -29,7 +29,6 @@ if src_dir not in sys.path:
 from models.schema import LegalDocument
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode, CrawlResult
 from collectors.generic_collector import GenericCollector # Updated: Using the generic engine
-# FIXED: Explicitly importing Forum enum alongside LegalObjectType and LegalIssue to resolve type checking
 from models.schema import LegalDocument, LegalObjectType, LegalIssue, Forum
 
 # --- LIGHTWEIGHT HELPERS ---
@@ -119,7 +118,6 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
             collector = GenericCollector.__new__(GenericCollector)
             collector.config = raw_config
             
-            # --- FIXED: REMOVED ARBITRARY SITE_KEY ASSIGNMENT TO SATISFY PYLANCE ---
             collector.base_url = str(raw_config['base_url']).rstrip('/')
             collector.selectors = raw_config.get('selectors', {})
             if collector.selectors is None:
@@ -137,6 +135,7 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
     print(f" Processing {config['site_name']} Portal: Finding latest documents...")
     
     # --- ENHANCED BROWSER CONFIG FOR ANTI-BOT ---
+    # Try using stealth browser settings, with a fallback if parameters fail
     try:
         browser_config = BrowserConfig(
             headless=True,
@@ -203,7 +202,7 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
                 state=config.get('state', 'National'),
                 duplicate_hash=file_hash,
                 issue_tag_primary=LegalIssue.OTHER,
-                date_of_order=datetime.now(timezone.utc).strftime('%Y-%m-%d'), # FIXED: Replaced datetime.UTC with cross-compatible timezone.utc
+                date_of_order=datetime.now(timezone.utc).strftime('%Y-%m-%d'),
                 version=1,
                 
                 content_markdown=f"LOCAL_PDF_PATH: {pdf_path}" # Signals processor to parse this PDF
@@ -240,7 +239,7 @@ if __name__ == "__main__":
         sites_to_scrape = [
             f.replace(".yaml", "") 
             for f in os.listdir(config_dir) 
-            if f.endswith(".yaml")
+            for f in [f] if f.endswith(".yaml")
         ]
     else:
         sites_to_scrape = ['kerc', 'seci', 'aptel', 'tnerc', 'cea', 'uperc', 'wberc', 'mnre', 'gerc', 'cerc', 'derc', 'merc', 'bee', 'mop']

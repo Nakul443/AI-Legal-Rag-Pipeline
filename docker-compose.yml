@@ -1,12 +1,11 @@
 services:
-  processor-worker:
-    build: .
+  legal_processor_worker:
+    build: 
+      context: .
+      dockerfile: Dockerfile
     container_name: legal_processor_worker
-    restart: unless-stopped
     volumes:
-      # Maps your local codebase adjustments instantly inside the container
-      - .:/app
-      # Captures generated database outputs directly on your hard drive
+      # Maps your local host directories directly into the container's active working directory
       - ./data:/app/data
-    env_file:
-      - .env
+      - ./fml-raw-legal-store:/app/fml-raw-legal-store
+    restart: on-failure

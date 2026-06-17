@@ -1,4 +1,4 @@
-# ADDED FUNCTIONALITIES COMMENTS:
+# --- ADDED FUNCTIONALITIES COMMENTS:
 # 1. Enforced strict 100% UPPERCASE constraints on generated paths and filenames to comply with Section 3 and Section 2 folder standards.
 # 2. Re-engineered `generate_deterministic_path` to guarantee pluralized plural folders (JUDGMENTS, REGULATIONS, TARIFF_ORDERS, AMENDMENTS) matching the structural hierarchy exactly.
 # 3. Synchronized fallback mechanisms to trigger the new `pending_` flags inside the schema when critical naming parameters are unextracted.

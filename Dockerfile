@@ -19,4 +19,4 @@ COPY . .
 ENV PYTHONPATH=/app:/app/services/processor/src:/app/services/api-rag/src
 
 # Default execution targeted directly at your pipeline entry point
-CMD ["python", "services/processor/src/worker.py"]
+CMD ["python3", "services/processor/src/worker.py"]
