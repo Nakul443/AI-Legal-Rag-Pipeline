@@ -1,4 +1,6 @@
 site_name: "Ministry of Power"
+forum: "MOP"
+state: "CENTRAL"
 jurisdiction: "Central - India"
 category: "Acts & Rules"
 base_url: "https://powermin.gov.in"

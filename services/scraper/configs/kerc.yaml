@@ -1,4 +1,6 @@
 site_name: "KERC"
+forum: "KERC"
+state: "KA"
 jurisdiction: "State - Karnataka"
 category: "Regulatory Documents"
 base_url: "https://kerc.karnataka.gov.in"

@@ -172,8 +172,8 @@ class GenericCollector:
         doc_data['authority'] = self.config.get('forum', self.config.get('site_name', 'CERC')).upper()
 
         # state: YAML key 'state' (e.g., "CENTRAL", "MH", "GJ").
-        # Central forums (CERC, APTEL, SC) should set state: "CENTRAL" in their YAML.
-        doc_data['state'] = self.config.get('state', 'National')
+        # [FIXED] Sourced default fallback code directly from valid set keys ("CENTRAL") instead of "National"
+        doc_data['state'] = self.config.get('state', 'CENTRAL')
 
         # jurisdiction: Human-readable string for display ("Federal" or state commission name).
         doc_data['jurisdiction'] = self.config.get('jurisdiction', 'India')

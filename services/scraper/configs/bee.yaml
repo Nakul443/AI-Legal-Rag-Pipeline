@@ -1,4 +1,6 @@
 site_name: "BEE"
+forum: "BEE"
+state: "CENTRAL"
 jurisdiction: "Central - India"
 category: "Energy Conservation"
 base_url: "https://www.beeindia.gov.in"

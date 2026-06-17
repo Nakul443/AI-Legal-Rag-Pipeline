@@ -1,4 +1,6 @@
 site_name: "APTEL"
+forum: "APTEL"
+state: "CENTRAL"
 jurisdiction: "Federal - Appellate"
 category: "Judgments"
 base_url: "https://aptel.gov.in"

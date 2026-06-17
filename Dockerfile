@@ -17,6 +17,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # inside the isolated container filesystem to prevent launch executable crashes.
 RUN playwright install --with-deps chromium
 
+# --- ADDED: Crawl4AI Internal Setup Broker ---
+# Triggers internal browser configurations so crawl4ai accurately recognizes 
+# its custom headless engine environment mappings.
+RUN crawl4ai-setup
+
 # Copy the entire workspace structure into the container (/app/services, /app/models, etc.)
 COPY . .
 

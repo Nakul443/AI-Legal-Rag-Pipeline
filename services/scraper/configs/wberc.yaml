@@ -1,4 +1,6 @@
 site_name: "WBERC"
+forum: "WBERC"
+state: "WB"
 jurisdiction: "State - West Bengal"
 category: "Tariff & Regulations"
 base_url: "https://www.wberc.gov.in"
