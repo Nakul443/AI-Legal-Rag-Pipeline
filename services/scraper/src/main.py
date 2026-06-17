@@ -118,6 +118,7 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
             collector = GenericCollector.__new__(GenericCollector)
             collector.config = raw_config
             
+            # --- PATCH: Ensure initialized attributes exist on the dynamically allocated collector ---
             collector.base_url = str(raw_config['base_url']).rstrip('/')
             collector.selectors = raw_config.get('selectors', {})
             if collector.selectors is None:
@@ -149,76 +150,18 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
         browser_config = BrowserConfig(headless=True)
     
     # Use our generic collector to find links based on YAML selectors
+    # --- PATCH: If your generic_collector.py supports run-time browser config parameters, they can be injected here. ---
     discovered_docs = await collector.collect_links()
     
     save_dir = os.path.join(project_root, "data", "raw")
     os.makedirs(save_dir, exist_ok=True)
 
     # Process discovered items to test the pipeline
+    # CHANGED: Hand off execution cleanly to engine workflow for exactly 1 document per portal slice matrix
     for item in discovered_docs[:1]:
-        doc_uid = str(uuid.uuid4())
-        pdf_filename = f"{doc_uid}.pdf"
-        pdf_path = os.path.join(save_dir, pdf_filename)
-        
-        print(f" -> Downloading: {item['title']}...")
-        success = await download_pdf(item['source_url'] if 'source_url' in item else item.get('url', ''), pdf_path)
-        
-        if success:
-            # 1. Generate SHA-256 hash for WORM compliance (Rule 01)
-            with open(pdf_path, "rb") as f:
-                file_hash = hashlib.sha256(f.read()).hexdigest()
+        print(f" -> Ingesting via Engine: {item['title']}...")
+        await collector.save_to_raw(item)
 
-            # --- FIXED: SCHEMA ENUM CONSTRAINTS ---
-            # By mapping directly against the explicit Forum enum class, Pylance now recognizes 
-            # the assigned instance perfectly, satisfying strict static type checking.
-            input_auth = config.get('forum', config.get('site_name', 'CERC')).upper()
-            
-            try:
-                if hasattr(Forum, input_auth):
-                    validated_authority = getattr(Forum, input_auth)
-                else:
-                    matched_enum = None
-                    for member in Forum:
-                        if member.value == input_auth:
-                            matched_enum = member
-                            break
-                    validated_authority = matched_enum if matched_enum else Forum.CERC
-            except (KeyError, AttributeError):
-                # Structural fallback definition to preserve worker orchestration pipeline
-                validated_authority = Forum.CERC
-
-            # 2. Create the structured document with mandatory tags (Rule 03)
-            doc = LegalDocument(
-                uid=doc_uid,
-                title=item['title'], 
-                source_url=item.get('source_url', item.get('url', '')),
-                jurisdiction=config.get('jurisdiction', 'India'),
-                category=config.get('category', 'Electricity'),
-                document_type="Order",  # Default type, to be refined by orchestrator
-                
-                # Mandatory metadata for D1-D4 classification and Provenance (Rule 02)
-                authority=validated_authority,
-                legal_object_type=LegalObjectType.JUDGMENT, # Placeholder for orchestrator
-                state=config.get('state', 'National'),
-                duplicate_hash=file_hash,
-                issue_tag_primary=LegalIssue.OTHER,
-                date_of_order=datetime.now(timezone.utc).strftime('%Y-%m-%d'),
-                version=1,
-                
-                content_markdown=f"LOCAL_PDF_PATH: {pdf_path}" # Signals processor to parse this PDF
-            )
-            
-            # Write the true raw site_key name into our local json payload so factory_manager knows its real context.
-            doc_dict = doc.model_dump()
-            doc_dict['authority'] = input_auth
-            
-            # Explicit forwarding of additional payload details requested by schema pipelines
-            doc_dict['source_domain'] = config.get('base_url', '').replace('https://', '').replace('http://', '').split('/')[0]
-            doc_dict['scrape_date'] = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-            doc_dict['pipeline_version'] = "2026.1.0"
-            doc_dict['file_size_bytes'] = os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
-            
-            save_doc_locally_dict(doc_dict, doc_uid)
 
 def save_doc_locally_dict(doc_dict: dict, uid: str) -> None:
     """Helper to save the structured dict payload to data/raw."""

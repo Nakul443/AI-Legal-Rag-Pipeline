@@ -1,3 +1,4 @@
+# services/scraper/src/collectors/generic_collector.py
 # core engine that powers the automated pipeline
 '''
 1. Loads the site-specific YAML config
@@ -20,7 +21,7 @@
 
 import asyncio
 import os
-from typing import List, Dict, cast
+from typing import List, Dict, cast, Any
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode, CrawlResult
 from utils.config_loader import load_site_config
 from bs4 import BeautifulSoup
@@ -28,7 +29,7 @@ import httpx
 import json
 import uuid
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 # Pipeline version tag — bump this when ingestion logic changes so
 # every document carries the version of code that produced it (Section 4.1)
@@ -52,7 +53,7 @@ class GenericCollector:
         if self.selectors is None:
             self.selectors = {}
 
-    async def collect_links(self) -> List[Dict]:
+    async def collect_links(self, run_config: Any = None) -> List[Dict]:
         """
         Crawls the page and extracts document metadata. 
         Bypasses browser for direct PDF links.
@@ -73,12 +74,14 @@ class GenericCollector:
         async with AsyncWebCrawler() as crawler:
             wait_selector = self.config.get('wait_for', 'body')
             
-            run_config = CrawlerRunConfig(
-                cache_mode=CacheMode.BYPASS,
-                # Using 'body' as a fallback, but SECI needs its dataTable
-                wait_for=f"css:{wait_selector}",
-                js_code="await new Promise(r => setTimeout(r, 2000));" 
-            )
+            # Use runtime configuration matrix passed from main control center, or fall back to default
+            if run_config is None:
+                run_config = CrawlerRunConfig(
+                    cache_mode=CacheMode.BYPASS,
+                    # Using 'body' as a fallback, but SECI needs its dataTable
+                    wait_for=f"css:{wait_selector}",
+                    js_code="await new Promise(r => setTimeout(r, 2000));" 
+                )
             print(f" Starting crawl for {self.config.get('site_name', 'Unknown Site')}...")
             try:
                 raw_result = await crawler.arun(url=start_url or self.base_url, config=run_config)
@@ -111,10 +114,25 @@ class GenericCollector:
                         if not href: continue
                         
                         href = str(href).strip()
-                        full_url = href if href.startswith('http') else f"{self.base_url}/{href.lstrip('/')}"
+                        
+                        # --- PATCH 1: STABLE ABSOLUTE URL JOIN ENHANCEMENT ---
+                        # Replaced primitive f-string matching with standard urljoin semantics.
+                        # This resolves domain parsing errors (like GERC's DNS Address exception) 
+                        # when a site references documents on parent branches or relative assets.
+                        full_url = urljoin(start_url or self.base_url, href)
+
+                        # --- PATCH 2: CLEAN INLINE SCISSOR STRIPPING ---
+                        # Prevents global template leaks (like UPERC pulling navigation layout text).
+                        # Grabs text strictly from the single matching target node without structural noise.
+                        raw_title = title_el.get_text(space_join=True, strip=True)
+                        if len(raw_title) > 200 or not raw_title:
+                            # If selector accidentally captured giant sub-tree block layout, prioritize link anchor text
+                            raw_title = link_el.get_text(strip=True) or raw_title[:100] + "..."
+                            if not raw_title.strip():
+                                raw_title = f"Document_{href.split('/')[-1]}"
 
                         documents.append({
-                            "title": title_el.get_text(strip=True),
+                            "title": raw_title,
                             # [FIX] Key renamed from 'url' → 'source_url' to match what worker.py reads.
                             # Previously worker.py called scraped_data.get('source_url', 'N/A') and always
                             # got 'N/A' because collector was writing 'url'. Every stored document had
@@ -174,10 +192,20 @@ class GenericCollector:
         doc_data['file_size_bytes'] = 0
 
         # Use browser-like headers to avoid being blocked during PDF download
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        async with httpx.AsyncClient(verify=False, headers=headers) as client:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "application/pdf,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Referer": self.base_url
+        }
+        
+        async with httpx.AsyncClient(verify=False, headers=headers, timeout=30.0) as client:
             try:
-                resp = await client.get(doc_data['source_url'], follow_redirects=True)
+                if not source_url or not source_url.startswith('http'):
+                    raise ValueError(f"Malformed or missing target download tracking link: '{source_url}'")
+                    
+                resp = await client.get(source_url, follow_redirects=True)
+                
                 if resp.status_code == 200:
                     pdf_bytes = resp.content
                     with open(os.path.join(raw_dir, f"{uid}.pdf"), "wb") as f:
@@ -185,9 +213,12 @@ class GenericCollector:
                     # [FIX] Record actual file size now that download succeeded.
                     # worker.py uses this to populate the Section 4.1 file_size_bytes tag.
                     doc_data['file_size_bytes'] = len(pdf_bytes)
-                    print(f" ✅ Saved: {doc_data['title']}")
+                    print(f" Saved: {doc_data['title']} ({len(pdf_bytes)} bytes)")
+                else:
+                    # [FIX] Trap hidden non-200 connection drops (e.g. 403 Forbidden blocks)
+                    print(f" ❌ Server Rejected Download Request: HTTP {resp.status_code} for URL: {source_url}")
             except Exception as e:
-                print(f" ❌ PDF Download Failed: {e}")
+                print(f" PDF Download Failed: {e}")
 
         # Write JSON after PDF attempt so file_size_bytes reflects real outcome.
         # If download failed, file_size_bytes=0 signals worker.py that PDF is missing.

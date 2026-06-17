@@ -12,6 +12,11 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# --- ADDED: Playwright Browser Installation Layer ---
+# Installs the matching Chromium binaries and necessary Linux system libraries 
+# inside the isolated container filesystem to prevent launch executable crashes.
+RUN playwright install --with-deps chromium
+
 # Copy the entire workspace structure into the container (/app/services, /app/models, etc.)
 COPY . .
 

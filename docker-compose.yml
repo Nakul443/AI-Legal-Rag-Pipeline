@@ -12,7 +12,6 @@ services:
       - ./fml-raw-legal-store:/app/fml-raw-legal-store
     restart: on-failure
 
-
   # this image will run the API server,
   # which will be responsible for handling incoming request
   # and serving responses based on the processed legal data.
@@ -44,5 +43,6 @@ services:
     env_file:
       - .env  # Injects your local environment variables into the container
     volumes:
-      - ./data:/app/data  # Maps data directory so raw scraped outputs drop directly into your local folder
+      # --- FIXED: Aligned mount point pathing to match root structure ---
+      - ./data:/app/data
     command: ["python3", "services/scraper/src/main.py"]  # Overrides default worker command to execute scraper

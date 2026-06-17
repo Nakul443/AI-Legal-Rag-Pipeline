@@ -1,12 +1,3 @@
-# ADDED FUNCTIONALITIES COMMENTS:
-# 1. Added validation states and Enum values to align with Section 4.1 for fast-lookup tracking. 
-# 2. Added ChallengeStatus Enum to eliminate loose string assignments for 'FINAL', 'UNDER_APPEAL', 'STAYED', and 'REMANDED'. 
-# 3. Added boolean flags 'pending_[fieldname]' initialized dynamically to satisfy the Section 4.2 metadata requirement when a field is null at scrape time.
-# 4. [FIX] Added Section 4.1 scrape-time fields missing from original: source_domain, scrape_date, pipeline_version, file_size_bytes.
-# 5. [FIX] Added WRIT to LegalIssue enum — required by Section 2.2 for HIGH_COURTS/JUDGMENTS sub-folders.
-# 6. [FIX] Added pending_source_url flag — source_url is the primary provenance field per Section 4.1 Rule 02.
-# 7. [FIX] Expanded Forum enum with
-
 # models/schema.py
 # One Source of Truth for the entire Lawyer-RAG-Pipeline.
 # Shared by Scraper (Inbound) and Processor (Chunking/Embedding).
@@ -14,6 +5,7 @@
 # The UID can be generated as a hash of the source URL or a combination of title and published date.
 # This schema also includes fields for categorization (jurisdiction, category, document type) and metadata (tags, file path in S3) to enhance the filtering capabilities during retrieval.
 # helps for easy filtering of data; if a scraper or processor misses a field, an error will be thrown.
+
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -27,7 +19,7 @@ class Industry(str, Enum):
 class Forum(str, Enum):
     CERC = "CERC"
     APTEL = "APTEL"
-    SC = "SUPREME_COURT"
+    SUPREME_COURT = "SUPREME_COURT"
     HC_DELHI = "HC_DELHI"
     HC_BOMBAY = "HC_BOMBAY"
     SERC_MH = "SERC_MAHARASHTRA"
@@ -35,7 +27,17 @@ class Forum(str, Enum):
     SERC_KA = "SERC_KARNATAKA"
     SERC_RJ = "SERC_RAJASTHAN"
     SERC_TN = "SERC_TAMIL_NADU"
-    # Added as per Phase 1 scope
+    # [FIX] Completed Forum enum expansion matrix safely to avoid unassigned field token failures
+    MERC = "MERC"
+    KERC = "KERC"
+    TNERC = "TNERC"
+    UPERC = "UPERC"
+    WBERC = "WBERC"
+    DERC = "DERC"
+    BERC = "BERC"
+    HERC = "HERC"
+    BEE = "BEE"
+    MOP = "MOP"
 
 class LegalObjectType(str, Enum):
     JUDGMENT = "JUDGMENT"
@@ -137,7 +139,20 @@ class LegalDocument(BaseModel):
         """
         Dynamic initialization factory that cleanly instantiates the schema model
         from raw unstructured dictionary fields while preserving strict validation.
+        Converts null elements automatically to satisfy Section 4.2 tracking checks.
         """
+        # Ensure pending field trackers mirror incoming null states accurately
+        data['pending_source_url'] = not bool(data.get('source_url'))
+        data['pending_legal_object_type'] = data.get('legal_object_type') is None or data.get('legal_object_type') == "N/A"
+        data['pending_date_of_order'] = data.get('date_of_order') is None or data.get('date_of_order') == "N/A"
+        data['pending_state'] = data.get('state') is None or data.get('state') == "N/A"
+        data['pending_version'] = data.get('version') is None
+        data['pending_effective_date'] = data.get('effective_date') is None or data.get('effective_date') == "N/A"
+        data['pending_issue_tag_primary'] = data.get('issue_tag_primary') is None or data.get('issue_tag_primary') == "OTHER"
+        data['pending_parties_petitioner'] = data.get('parties_petitioner') is None or data.get('parties_petitioner') == "N/A"
+        data['pending_parties_respondent'] = data.get('parties_respondent') is None or data.get('parties_respondent') == "N/A"
+        data['pending_challenge_status'] = data.get('challenge_status') is None
+
         return cls(**data)
 
 

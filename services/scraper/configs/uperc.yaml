@@ -6,7 +6,8 @@ base_url: "https://www.uperc.org"
 start_url: "https://www.uperc.org/Tariff_Order_Users.aspx"
 
 selectors:
-  row: "table tr:has(a)"
+  # --- FIXED: Constrained row selector to target rows inside the core content data grid only ---
+  row: "#ctl00_MainContent_gvOrders tr:has(a), table[class*='grid'] tr:has(a), #panel tr:has(a)"
   title: "td:nth-child(2)"
   link: "td:nth-child(3) a"
   # We set date to null because UPERC tables are inconsistent with date columns
