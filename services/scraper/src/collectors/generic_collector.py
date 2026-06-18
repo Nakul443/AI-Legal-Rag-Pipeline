@@ -162,7 +162,8 @@ class GenericCollector:
     async def save_to_raw(self, doc_data: dict):
         """Saves metadata and PDF with httpx."""
         uid = str(uuid.uuid4())
-        raw_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../data/raw"))
+        # --- FIXED: Stepped out 4 directories to land on container absolute root mount target path ---
+        raw_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../data/raw"))
         os.makedirs(raw_dir, exist_ok=True)
 
         doc_data['uid'] = uid

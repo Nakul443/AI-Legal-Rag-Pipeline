@@ -28,7 +28,7 @@ VALID_FORUMS = {
     "CERC", "APTEL", "SUPREME_COURT", "HC_DELHI", "HC_BOMBAY",
     "SERC_MH", "SERC_GJ", "SERC_KA", "SERC_RJ", "SERC_TN",
     "MERC", "KERC", "TNERC", "UPERC", "WBERC", "DERC", "BERC", 
-    "HERC", "BEE", "MOP", "CEA", "MNRE", "SECI"
+    "HERC", "BEE", "MOP", "CEA", "MNRE", "SECI", "GERC"
 }
 
 # Valid state codes used by generic_collector and DataOrchestrator
