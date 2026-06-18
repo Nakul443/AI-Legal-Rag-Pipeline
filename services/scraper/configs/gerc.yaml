@@ -1,5 +1,7 @@
 site_name: "GERC"
-jurisdiction: "State - Gujarat"
+forum: "GERC"
+state: "GUJARAT"
+jurisdiction: "India"
 category: "Latest News"
 base_url: "https://www.gercin.org"
 start_url: "https://www.gercin.org/news/"

@@ -1,5 +1,7 @@
 site_name: "MNRE"
-jurisdiction: "Central"
+forum: "MNRE"
+state: "CENTRAL"
+jurisdiction: "India"
 category: "Policy/Guideline"
 base_url: "https://mnre.gov.in"
 start_url: "https://mnre.gov.in/en/solar-policies-and-guidelines/"

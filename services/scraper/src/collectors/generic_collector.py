@@ -169,9 +169,16 @@ class GenericCollector:
 
         # ──────────────────────────────────────────────────────────────
         # [FIX] Section 4.1: Populate all scrape-time fields here before writing the JSON.
+        # Fallback variants normalized to ensure 'VALID_STATES' compliance downstream.
         # ──────────────────────────────────────────────────────────────
-        doc_data['authority'] = self.config.get('forum', self.config.get('site_name', 'CERC')).upper()
-        doc_data['state'] = self.config.get('state', 'CENTRAL')
+        raw_forum = self.config.get('forum') or self.config.get('site_name') or 'CERC'
+        doc_data['authority'] = str(raw_forum).upper()
+        
+        raw_state = self.config.get('state') or 'CENTRAL'
+        if str(raw_state).upper() in ['NATIONAL', 'INDIA', 'N/A', '']:
+            raw_state = 'CENTRAL'
+        doc_data['state'] = str(raw_state).upper()
+        
         doc_data['jurisdiction'] = self.config.get('jurisdiction', 'India')
 
         source_url = doc_data.get('source_url', '')
@@ -201,7 +208,7 @@ class GenericCollector:
                     doc_data['file_size_bytes'] = len(pdf_bytes)
                     print(f" Saved: {doc_data['title']} ({len(pdf_bytes)} bytes)")
                 else:
-                    print(f" ❌ Server Rejected Download Request: HTTP {resp.status_code} for URL: {source_url}")
+                    print(f" Server Rejected Download Request: HTTP {resp.status_code} for URL: {source_url}")
             except Exception as e:
                 print(f" PDF Download Failed: {e}")
 

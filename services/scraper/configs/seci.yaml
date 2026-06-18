@@ -1,6 +1,8 @@
 # config/sites/seci.yaml
 site_name: "SECI"
-jurisdiction: "Central"
+forum: "SECI"
+state: "CENTRAL"
+jurisdiction: "India"
 category: "Tenders"
 base_url: "https://www.seci.co.in"
 start_url: "https://www.seci.co.in/tenders"

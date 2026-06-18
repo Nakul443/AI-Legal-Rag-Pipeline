@@ -1,5 +1,7 @@
 site_name: "CEA"
-jurisdiction: "Central"
+forum: "CEA"
+state: "CENTRAL"
+jurisdiction: "India"
 category: "Technical Standards"
 base_url: "https://cea.nic.in"
 start_url: "https://cea.nic.in/quarterly-report/?lang=en"

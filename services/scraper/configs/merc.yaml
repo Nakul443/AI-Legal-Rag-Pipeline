@@ -1,5 +1,7 @@
 site_name: "MERC"
-jurisdiction: "State - Maharashtra"
+forum: "MERC"
+state: "MAHARASHTRA"
+jurisdiction: "India"
 category: "Regulatory Orders"
 base_url: "https://www.mahadiscom.in"
 start_url: "https://www.mahadiscom.in/en/consumer/distribution-open-access-regulation/"

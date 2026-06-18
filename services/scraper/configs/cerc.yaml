@@ -4,7 +4,9 @@
 # Instead of coding "Look for a table," you just tell the engine where the table is.
 
 site_name: "CERC"
-jurisdiction: "Central"
+forum: "CERC"
+state: "CENTRAL"
+jurisdiction: "India"
 category: "Orders"
 base_url: "https://cercind.gov.in"
 start_url: "https://cercind.gov.in/recent_orders.html"

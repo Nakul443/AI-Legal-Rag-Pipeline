@@ -1,5 +1,7 @@
 site_name: "TNERC"
-jurisdiction: "State - Tamil Nadu"
+forum: "TNERC"
+state: "TAMIL NADU"
+jurisdiction: "India"
 category: "Regulations"
 base_url: "http://exam.tnebnet.org"
 # Updated to a landing page if you want to find more links, 

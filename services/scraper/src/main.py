@@ -1,4 +1,5 @@
 # --- ENHANCED MONKEYPATCH FOR ALL BEAUTIFULSOUP TEXT EXTRACTION NODES ---
+import sys
 from bs4 import PageElement, Tag
 
 _orig_element_get_text = PageElement.get_text
@@ -26,7 +27,6 @@ Tag.get_text = _universal_patched_get_text
 # a simple, fast script or heavy-duty virtual browser
 
 import os
-import sys
 import uuid
 import asyncio
 import httpx
@@ -127,7 +127,8 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
             # Inject structural default tags to bypass strict validation
             raw_config.setdefault('site_name', site_key.upper())
             raw_config.setdefault('forum', raw_config.get('site_name', site_key.upper()))
-            raw_config.setdefault('state', 'National')
+            # FIXED: Fallback altered from 'National' to 'CENTRAL' to avoid silent validation failures
+            raw_config.setdefault('state', 'CENTRAL')
             raw_config.setdefault('jurisdiction', 'India')
             raw_config.setdefault('base_url', f"https://{site_key}.gov.in")
             raw_config.setdefault('start_url', raw_config.get('base_url'))
