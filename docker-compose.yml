@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: legal_processor_worker
     env_file:
-      - .env  # Injects your local environment variables into the container
+      - .env  # This injects your local environment variables into the container
     volumes:
       # Maps your local host directories directly into the container's active working directory
       - ./data:/app/data
