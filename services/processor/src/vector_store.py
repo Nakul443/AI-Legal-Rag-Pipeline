@@ -13,6 +13,7 @@ import numpy as np # Added for vector type casting
 from enum import Enum  # Added to check and serialize the new schema enums safely
 from dotenv import load_dotenv
 from typing import Optional
+from models.schema import Forum
 
 load_dotenv()
 
@@ -68,7 +69,11 @@ class VectorStore:
             # so LanceDB can index and filter them as standard text columns.
             for key, value in flat_record.items():
                 if isinstance(value, Enum):
-                    flat_record[key] = value.value
+                    # Special check: use enum name for Forum keys (e.g. SC, CERC) to keep paths and query tags aligned
+                    if isinstance(value, Forum):
+                        flat_record[key] = value.name
+                    else:
+                        flat_record[key] = value.value
 
             processed_records.append(flat_record)
 

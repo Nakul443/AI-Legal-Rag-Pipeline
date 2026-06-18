@@ -12,7 +12,7 @@
 #    HC_DELHI_WRIT_... instead of HC_DELHI_WRIT_... (authority segment was emitting full enum
 #    value "HC_DELHI" correctly but issue placement was wrong for HC-specific naming).
 
-# air traffic controller of legal data factory
+# Air traffic controller of legal data factory
 # 1.
 # When raw scrapers dump unstructured legal PDFs into your system,
 # the orchestrator's job is to enforce your file structure standards automatically.
@@ -27,7 +27,7 @@
 # Cleaned Parties, and Year, it constructs a predictable, standardized path and a permanent filename.
 # Raw Scraped Title: M/s. Adani Power Ltd vs Gujarat Urja Vikas Nigam Limited & Ors 2024
 # Orchestrator Cleaned Parties: ADANI_v_GUVNL
-# deterministic metadata architecture completed.
+# Deterministic metadata architecture completed.
 
 import os
 import re
@@ -53,7 +53,7 @@ class DataOrchestrator:
 
     def clean_legal_entity(self, entity_str: str) -> str:
         """
-        Refined NER: Removes legal suffixes, honorifics, and returns a clean 1-word identifier.
+        Refined NER: Removes legal suffixes, honorifics, and returns a clean max-2-word identifier.
         """
         # 1. Standardize to Uppercase
         clean = entity_str.upper()
@@ -77,14 +77,21 @@ class DataOrchestrator:
         # Skip generic words like 'THE', 'OF', 'COMMISSION'
         skip_words = ["THE", "OF", "AND", "IN", "BY", "PETITION", "APPEAL", "COMMISSION"]
         meaningful_words = [w for w in words if w not in skip_words]
-        return meaningful_words[0] if meaningful_words else "ENTITY"
+        
+        # [MODIFICATION] Section 3.4 compliance: extract a maximum of 2 words if available
+        if meaningful_words:
+            chosen_words = meaningful_words[:2]
+            return "_".join(chosen_words)
+        return "ENTITY"
 
     def extract_parties(self, title: str) -> str:
         """
         Splits title based on 'V/S', 'VERSUS', 'V.', etc.
+        Also intercepts multi-respondent thresholds to append RESPONDENTS_MULTIPLE suffix.
         """
         # Handle Suo Motu cases
-        if "SUO MOTU" in title.upper():
+        upper_title = title.upper()
+        if "SUO MOTU" in upper_title:
             return "SUO_MOTU"
 
         # Look for various "Versus" separators
@@ -96,6 +103,12 @@ class DataOrchestrator:
         
         if len(parts) >= 2:
             get_petitioner = self.clean_legal_entity(parts[0])
+            
+            # Look for Section 3.4 threshold rule: Check if title denotes multiple respondents
+            if any(term in upper_title.split(parts[0].upper())[-1] for term in ["AND ORS", "AND OTHERS", "& ORS", "& OTHERS"]):
+                get_respondent = self.clean_legal_entity(parts[1])
+                return f"{get_petitioner}_V_{get_respondent}_RESPONDENTS_MULTIPLE".upper()
+            
             get_respondent = self.clean_legal_entity(parts[1])
             return f"{get_petitioner}_V_{get_respondent}".upper()
         
@@ -171,21 +184,15 @@ class DataOrchestrator:
         forum_attr = doc.authority
         if isinstance(forum_attr, str):
             try:
-                # Try locating by key name (e.g., "CERC")
                 forum_enum = Forum[forum_attr.upper()]
             except KeyError:
                 try:
-                    # Fallback to look up by raw initialization value
                     forum_enum = Forum(forum_attr)
                 except ValueError:
                     forum_enum = Forum.CERC
         else:
             forum_enum = forum_attr
 
-        # NOTE: We use forum_enum.name (the Python key, e.g., "SC") not forum_enum.value
-        # (the storage string, e.g., "SUPREME_COURT") for the path-building switch below.
-        # This is intentional — the name keys are shorter and map cleanly to the if/elif branches.
-        # This approach ensures absolute alignment with the structural definitions.
         auth_name_key = forum_enum.name.upper()
         
         # Parse segments using clean Enum names to make structural lookups precise
@@ -210,7 +217,7 @@ class DataOrchestrator:
             resolved_court = court_name_map.get(court_code, "OTHERS")
             forum_segments = ["HIGH_COURTS", resolved_court]
 
-        elif auth_name_key == "SC":
+        elif auth_name_key in ["SUPREME_COURT", "SC"]:
             forum_segments = ["SUPREME_COURT"]
 
         else:
@@ -233,22 +240,14 @@ class DataOrchestrator:
 
         # [FIX] REVIEW_PETITIONS branch for APTEL: Section 2 shows APTEL has a dedicated
         # REVIEW_PETITIONS/ folder (distinct from JUDGMENTS/ and INTERIM_ORDERS/).
-        # Previously this fell through to the standard object_folder path, producing
-        # APTEL/JUDGMENTS/... instead of the correct APTEL/REVIEW_PETITIONS/ structure.
-        # A "Review Petition" object type doesn't exist in LegalObjectType, so we detect it
-        # via title/content keywords and override the path segment here.
         review_petition_keywords = ["REVIEW PETITION", "REVIEW PET", "R.P. NO", "RP NO"]
         text_context_for_rp = (doc.title + " " + doc.content_markdown[:500]).upper()
         if auth_name_key == "APTEL" and any(k in text_context_for_rp for k in review_petition_keywords):
-            # APTEL review petitions go into their own folder with no issue sub-folder
-            # per the Section 2 tree (REVIEW_PETITIONS/ has no sub-folders shown)
             path = os.path.join(Industry.POWER.value, *forum_segments, "REVIEW_PETITIONS")
             return path.upper()
 
         # [FIX] Issue #2 Hierarchy Alignment Check: Section 2 folder architecture mandates that 
         # issue sub-folders (D4) belong ONLY inside adjudicatory directories (JUDGMENTS, INTERIM_ORDERS).
-        # Legislative or statutory containers (REGULATIONS, AMENDMENTS, POLICY) are flat lists 
-        # that must never contain nested issue-slicing directories.
         if doc.legal_object_type in [LegalObjectType.REGULATION, LegalObjectType.AMENDMENT, LegalObjectType.POLICY, LegalObjectType.NOTIFICATION]:
             path = os.path.join(
                 Industry.POWER.value,
@@ -257,7 +256,6 @@ class DataOrchestrator:
             )
         else:
             raw_issue_val = doc.issue_tag_primary.value if hasattr(doc.issue_tag_primary, 'value') else str(doc.issue_tag_primary)
-            # Sequence multi-dimensional paths cleanly to avoid missing segments
             path = os.path.join(
                 Industry.POWER.value,
                 *forum_segments,
@@ -271,55 +269,42 @@ class DataOrchestrator:
         Generates standard structured filenames matching structural conditions.
         Orders/Judgments: [AUTHORITY]_[ISSUE]_[PARTIES]_[YEAR]_[TYPE].pdf
         Regulations/Amendments: [AUTHORITY]_[SUBJECT]_REGULATION_[YEAR]_V[VERSION].pdf
-
-        [FIX] Section 3.1 High Court filename pattern: HC_DELHI_WRIT_BSES_v_MOP_2023_JUDGMENT.pdf
-        The authority segment for HC documents must use the enum name key (HC_DELHI, HC_BOMBAY)
-        not the enum value, to match the Section 3.1 examples exactly.
         """
-        # [FIX] Issue #1 Multi-stage Dynamic Year Fallback: Instead of defaulting blindly to "0000"
-        # when the title lacks a 4-digit calendar segment, scan sequentially through the document's
-        # date_of_order attribute, and finally execute a text-wide regex inspection on the first 2000 characters.
+        # [FIX] Issue #1 Multi-stage Dynamic Year Fallback: Sweep sequentially for 4-digit calendar year
         year = None
         title_year_match = re.search(r'\b(19|20)\d{2}\b', doc.title)
         
         if title_year_match:
             year = title_year_match.group(0)
         elif doc.date_of_order:
-            # Safely cast date_of_order objects or strings into structural elements
             date_str = str(doc.date_of_order)
             date_year_match = re.search(r'\b(19|20)\d{2}\b', date_str)
             if date_year_match:
                 year = date_year_match.group(0)
                 
         if not year:
-            # Dynamic lookahead text sweep for notification dates / publication stamps
             text_sample = doc.content_markdown[:2000].upper()
             text_year_matches = re.findall(r'\b(19\d{2}|20[0-2]\d)\b', text_sample)
             year = text_year_matches[0] if text_year_matches else "0000"
 
         # Update automated compliance tracking state flags dynamically
-        if year == "0000":
-            doc.pending_date_of_order = True
-        else:
-            doc.pending_date_of_order = False
+        doc.pending_date_of_order = (year == "0000")
         
-        # [FIX] Use enum .name for the authority segment in filenames.
-        # Section 3.1 examples show: "HC_DELHI_WRIT_..." and "SC_CHANGE_IN_LAW_..."
-        # forum_enum.name gives us "HC_DELHI", "SC", "CERC" — matching those patterns exactly.
-        # forum_enum.value would give "HC_DELHI", "SUPREME_COURT", "CERC" — "SUPREME_COURT"
-        # in a filename would not match Section 3.1's "SC_CHANGE_IN_LAW_ESSAR_v_GUVNL_2023".
         forum_attr = doc.authority
         if isinstance(forum_attr, Forum):
             raw_auth_val = forum_attr.name.upper()   # e.g., "SC", "HC_DELHI", "CERC"
         else:
             raw_auth_val = str(forum_attr).upper()
 
+        # [MODIFICATION] Align Supreme Court identifier mapping with Section 3.1 standard
+        if raw_auth_val == "SUPREME_COURT":
+            raw_auth_val = "SC"
+
         raw_issue_val = doc.issue_tag_primary.value if hasattr(doc.issue_tag_primary, 'value') else str(doc.issue_tag_primary)
         raw_obj_val = doc.legal_object_type.value if hasattr(doc.legal_object_type, 'value') else str(doc.legal_object_type)
 
         # SECTION 3.2: Differentiated serialization for Legislation vs Adjudication entries
         if doc.legal_object_type in [LegalObjectType.REGULATION, LegalObjectType.AMENDMENT]:
-            # Extract main clean subject context phrase (Max 2 words per Section 3.4 guidelines)
             clean_subject = raw_issue_val if raw_issue_val != "OTHER" else "COMPLIANCE"
             components = [
                 raw_auth_val,
@@ -330,9 +315,7 @@ class DataOrchestrator:
             ]
             doc.pending_parties_petitioner = False
             doc.pending_parties_respondent = False
-
         else:
-            # Enhanced Party Extraction (Refined NER for Judgments/Orders)
             parties = self.extract_parties(doc.title)
             if parties == "ENTITY" or parties == doc.title.upper():
                 doc.pending_parties_petitioner = True
@@ -341,7 +324,8 @@ class DataOrchestrator:
                 if "_V_" in parties:
                     split_p = re.split(r"_V_", parties, flags=re.IGNORECASE)
                     doc.parties_petitioner = split_p[0]
-                    doc.parties_respondent = split_p[1]
+                    # Retain matching multi-respondent suffix tracking components safely
+                    doc.parties_respondent = split_p[1].replace("_RESPONDENTS_MULTIPLE", "")
 
             components = [
                 raw_auth_val,

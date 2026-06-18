@@ -1,10 +1,10 @@
 # models/schema.py
 # One Source of Truth for the entire Lawyer-RAG-Pipeline.
 # Shared by Scraper (Inbound) and Processor (Chunking/Embedding).
-# ensures every document has a unique ID, which is crucial for RAG retrieval and avoiding duplicates in the vector store.
+# Ensures every document has a unique ID, which is crucial for RAG retrieval and avoiding duplicates in the vector store.
 # The UID can be generated as a hash of the source URL or a combination of title and published date.
 # This schema also includes fields for categorization (jurisdiction, category, document type) and metadata (tags, file path in S3) to enhance the filtering capabilities during retrieval.
-# helps for easy filtering of data; if a scraper or processor misses a field, an error will be thrown.
+# Helps for easy filtering of data; if a scraper or processor misses a field, an error will be thrown.
 
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -142,9 +142,13 @@ class LegalDocument(BaseModel):
         Converts null elements automatically to satisfy Section 4.2 tracking checks.
         """
         # Ensure pending field trackers mirror incoming null states accurately
-        data['pending_source_url'] = not bool(data.get('source_url'))
+        raw_src = data.get('source_url', '')
+        data['pending_source_url'] = not raw_src or raw_src == 'N/A'
         data['pending_legal_object_type'] = data.get('legal_object_type') is None or data.get('legal_object_type') == "N/A"
-        data['pending_date_of_order'] = data.get('date_of_order') is None or data.get('date_of_order') == "N/A"
+        
+        raw_doo = data.get('date_of_order', '')
+        data['pending_date_of_order'] = not raw_doo or raw_doo == 'N/A'
+        
         data['pending_state'] = data.get('state') is None or data.get('state') == "N/A"
         data['pending_version'] = data.get('version') is None
         data['pending_effective_date'] = data.get('effective_date') is None or data.get('effective_date') == "N/A"
