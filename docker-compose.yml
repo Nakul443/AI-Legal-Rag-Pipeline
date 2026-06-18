@@ -16,7 +16,7 @@ services:
   # which will be responsible for handling incoming request
   # and serving responses based on the processed legal data.
   # It will also have access to the same shared volumes to read from the database
-  # and serve the necessary information.
+  # and serve all the necessary information.
   legal_api_server:
     build:
       context: .
