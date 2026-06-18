@@ -97,56 +97,64 @@ class GenericCollector:
             soup = BeautifulSoup(result.html or "", "html.parser")
             documents = []
             
-            # Safety check for missing selectors
-            if not self.selectors or 'row' not in self.selectors:
-                print(f" ⚠️ No parsing layout rules mapped inside selectors for {self.config.get('site_name')}. Skipping parsing rows step.")
-                return []
+            # ──────────────────────────────────────────────────────────────
+            # NEW FALLBACK AUTO-DISCOVERY STRATEGY
+            # If explicit parsing rules aren't defined or miss, fallback to target 
+            # scanning the entire document DOM layout for explicit PDF download extensions.
+            # ──────────────────────────────────────────────────────────────
+            has_valid_selectors = self.selectors and 'row' in self.selectors
+            rows = soup.select(self.selectors['row']) if has_valid_selectors else []
 
-            rows = soup.select(self.selectors['row'])
-            for row in rows:
-                try:
-                    title_el = row.select_one(self.selectors['title']) if self.selectors.get('title') else None
-                    link_el = row.select_one(self.selectors['link']) if self.selectors.get('link') else None
-                    date_el = row.select_one(self.selectors['date']) if self.selectors.get('date') else None
-
-                    if title_el and link_el:
-                        href = link_el.get('href')
-                        if not href: continue
+            if not rows:
+                print(f" ⚠️ Targeted row selectors returned zero items. Executing fallback anchor matching logic...")
+                # Search all hyperlinks on the page containing explicit structural file targets
+                for link_tag in soup.find_all('a', href=True):
+                    href_str = link_tag.get('href', '').strip()
+                    if '.pdf' in href_str.lower():
+                        full_url = urljoin(start_url or self.base_url, href_str)
+                        anchor_text = link_tag.get_text(strip=True) or f"Document_{href_str.split('/')[-1]}"
                         
-                        href = str(href).strip()
-                        
-                        # --- PATCH 1: STABLE ABSOLUTE URL JOIN ENHANCEMENT ---
-                        # Replaced primitive f-string matching with standard urljoin semantics.
-                        # This resolves domain parsing errors (like GERC's DNS Address exception) 
-                        # when a site references documents on parent branches or relative assets.
-                        full_url = urljoin(start_url or self.base_url, href)
+                        # Avoid duplicates
+                        if not any(d['source_url'] == full_url for d in documents):
+                            documents.append({
+                                "title": anchor_text[:120],
+                                "source_url": full_url,
+                                "date_of_order": "N/A",
+                                "source": self.config.get('site_name', 'Generic')
+                            })
+            else:
+                # Execute original patterned mapping logic
+                for row in rows:
+                    try:
+                        title_el = row.select_one(self.selectors['title']) if self.selectors.get('title') else None
+                        link_el = row.select_one(self.selectors['link']) if self.selectors.get('link') else None
+                        date_el = row.select_one(self.selectors['date']) if self.selectors.get('date') else None
 
-                        # --- PATCH 2: CLEAN INLINE SCISSOR STRIPPING ---
-                        # Prevents global template leaks (like UPERC pulling navigation layout text).
-                        # Grabs text strictly from the single matching target node without structural noise.
-                        raw_title = title_el.get_text(separator=" ", strip=True)
-                        if len(raw_title) > 200 or not raw_title:
-                            # If selector accidentally captured giant sub-tree block layout, prioritize link anchor text
-                            raw_title = link_el.get_text(strip=True) or raw_title[:100] + "..."
-                            if not raw_title.strip():
-                                raw_title = f"Document_{href.split('/')[-1]}"
+                        if title_el and link_el:
+                            href = link_el.get('href')
+                            if not href: continue
+                            
+                            href = str(href).strip()
+                            
+                            # --- PATCH 1: STABLE ABSOLUTE URL JOIN ENHANCEMENT ---
+                            full_url = urljoin(start_url or self.base_url, href)
 
-                        documents.append({
-                            "title": raw_title,
-                            # [FIX] Key renamed from 'url' → 'source_url' to match what worker.py reads.
-                            # Previously worker.py called scraped_data.get('source_url', 'N/A') and always
-                            # got 'N/A' because collector was writing 'url'. Every stored document had
-                            # source_url = 'N/A', breaking Section 4.1 provenance completely.
-                            "source_url": full_url,
-                            # [FIX] Key renamed from 'date' → 'date_of_order' to match what worker.py reads.
-                            # Previously worker.py called scraped_data.get('date_of_order', "2024-01-01")
-                            # and always got the hardcoded placeholder. Real dates were silently discarded.
-                            "date_of_order": date_el.get_text(strip=True) if date_el else "N/A",
-                            "source": self.config.get('site_name', 'Generic')
-                        })
-                except Exception as e:
-                    print(f"⚠️ Skipping a row: {e}")
-                    continue
+                            # --- PATCH 2: CLEAN INLINE SCISSOR STRIPPING ---
+                            raw_title = title_el.get_text(separator=" ", strip=True)
+                            if len(raw_title) > 200 or not raw_title:
+                                raw_title = link_el.get_text(strip=True) or raw_title[:100] + "..."
+                                if not raw_title.strip():
+                                    raw_title = f"Document_{href.split('/')[-1]}"
+
+                            documents.append({
+                                "title": raw_title,
+                                "source_url": full_url,
+                                "date_of_order": date_el.get_text(strip=True) if date_el else "N/A",
+                                "source": self.config.get('site_name', 'Generic')
+                            })
+                    except Exception as e:
+                        print(f"⚠️ Skipping a row: {e}")
+                        continue
 
             print(f" Found {len(documents)} documents on {self.config.get('site_name', 'Unknown Site')}")
             return documents
@@ -161,37 +169,17 @@ class GenericCollector:
 
         # ──────────────────────────────────────────────────────────────
         # [FIX] Section 4.1: Populate all scrape-time fields here before writing the JSON.
-        # worker.py reads these keys directly from the JSON. Without them, every
-        # field fell back to a default or pending=True, making Section 4.2 tracking useless.
-        # All values are pulled from self.config (YAML) — the YAML is the right place to
-        # declare authority/state/jurisdiction per site, since the collector already owns the config.
         # ──────────────────────────────────────────────────────────────
-
-        # authority: YAML key 'forum' (e.g., "CERC", "APTEL", "SERC_MH").
-        # worker.py reads 'authority' and does Forum enum lookup — must be a valid Forum member name.
         doc_data['authority'] = self.config.get('forum', self.config.get('site_name', 'CERC')).upper()
-
-        # state: YAML key 'state' (e.g., "CENTRAL", "MH", "GJ").
-        # [FIXED] Sourced default fallback code directly from valid set keys ("CENTRAL") instead of "National"
         doc_data['state'] = self.config.get('state', 'CENTRAL')
-
-        # jurisdiction: Human-readable string for display ("Federal" or state commission name).
         doc_data['jurisdiction'] = self.config.get('jurisdiction', 'India')
 
-        # source_domain: Extracted from source_url for lifecycle rules and dedup routing.
         source_url = doc_data.get('source_url', '')
         doc_data['source_domain'] = urlparse(source_url).netloc if source_url else None
-
-        # scrape_date: ISO timestamp of this exact scrape run (Section 4.1 requires it).
         doc_data['scrape_date'] = datetime.utcnow().isoformat()
-
-        # pipeline_version: Tags which version of ingestion code produced this record.
         doc_data['pipeline_version'] = PIPELINE_VERSION
-
-        # file_size_bytes: Set to 0 now; updated to actual size after successful PDF download below.
         doc_data['file_size_bytes'] = 0
 
-        # Use browser-like headers to avoid being blocked during PDF download
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "application/pdf,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -210,17 +198,12 @@ class GenericCollector:
                     pdf_bytes = resp.content
                     with open(os.path.join(raw_dir, f"{uid}.pdf"), "wb") as f:
                         f.write(pdf_bytes)
-                    # [FIX] Record actual file size now that download succeeded.
-                    # worker.py uses this to populate the Section 4.1 file_size_bytes tag.
                     doc_data['file_size_bytes'] = len(pdf_bytes)
                     print(f" Saved: {doc_data['title']} ({len(pdf_bytes)} bytes)")
                 else:
-                    # [FIX] Trap hidden non-200 connection drops (e.g. 403 Forbidden blocks)
                     print(f" ❌ Server Rejected Download Request: HTTP {resp.status_code} for URL: {source_url}")
             except Exception as e:
                 print(f" PDF Download Failed: {e}")
 
-        # Write JSON after PDF attempt so file_size_bytes reflects real outcome.
-        # If download failed, file_size_bytes=0 signals worker.py that PDF is missing.
         with open(os.path.join(raw_dir, f"{uid}.json"), "w") as f:
             json.dump(doc_data, f)

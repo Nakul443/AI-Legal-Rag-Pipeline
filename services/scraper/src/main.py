@@ -1,3 +1,22 @@
+# --- ENHANCED MONKEYPATCH FOR ALL BEAUTIFULSOUP TEXT EXTRACTION NODES ---
+from bs4 import PageElement, Tag
+
+_orig_element_get_text = PageElement.get_text
+_orig_tag_get_text = Tag.get_text
+
+def _universal_patched_get_text(self, *args, **kwargs):
+    if 'space_join' in kwargs:
+        if kwargs.pop('space_join'):
+            kwargs['separator'] = kwargs.get('separator', ' ')
+    
+    if isinstance(self, Tag):
+        return _orig_tag_get_text(self, *args, **kwargs)
+    return _orig_element_get_text(self, *args, **kwargs)
+
+PageElement.get_text = _universal_patched_get_text
+Tag.get_text = _universal_patched_get_text
+# ──────────────────────────────────────────────────────────────────────────
+
 # "control center"
 # This file will be the main entry point for the scraper service. It will receive a URL from the API, 
 # send it to Crawl4AI (for JS-heavy sites) OR use a lightweight fetcher (for simple PDF discovery),
@@ -136,28 +155,26 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
     print(f" Processing {config['site_name']} Portal: Finding latest documents...")
     
     # --- ENHANCED BROWSER CONFIG FOR ANTI-BOT ---
-    # Try using stealth browser settings, with a fallback if parameters fail
-    try:
-        browser_config = BrowserConfig(
-            headless=True,
-            extra_args=["--disable-blink-features=AutomationControlled"], # Standard stealth
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
+    # Setup runtime execution matrix parameters for Crawl4AI
+    run_config = None
+    if use_browser:
+        wait_selector = config.get('wait_for', 'body')
+        # Cleanly formatted to feed directly into Crawl4AI's runtime engine mapping
+        run_config = CrawlerRunConfig(
+            cache_mode=CacheMode.BYPASS,
+            wait_for=wait_selector if wait_selector.startswith("css:") else f"css:{wait_selector}",
+            js_code="await new Promise(r => setTimeout(r, 2000));"
         )
-    except TypeError:
-        # Fallback for older or strictly limited versions
-        browser_config = BrowserConfig(headless=True)
     
-    # Use our generic collector to find links based on YAML selectors
-    # --- PATCH: If your generic_collector.py supports run-time browser config parameters, they can be injected here. ---
-    discovered_docs = await collector.collect_links()
+    # Use our generic collector to find links based on YAML selectors or Fallback engines
+    # Passing run_config matrix cleanly ensures internal engine doesn't trip on missing tokens
+    discovered_docs = await collector.collect_links(run_config=run_config)
     
     save_dir = os.path.join(project_root, "data", "raw")
     os.makedirs(save_dir, exist_ok=True)
 
     # Process discovered items to test the pipeline
-    # CHANGED: Hand off execution cleanly to engine workflow for exactly 1 document per portal slice matrix
+    # HAND OFF: Execution handed off cleanly to engine workflow for exactly 1 document per portal slice matrix
     for item in discovered_docs[:1]:
         print(f" -> Ingesting via Engine: {item['title']}...")
         await collector.save_to_raw(item)
