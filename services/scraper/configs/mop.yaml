@@ -3,20 +3,14 @@ forum: "MOP"
 state: "CENTRAL"
 jurisdiction: "Central - India"
 category: "Acts & Rules"
+document_type: "Act/Policy"
 base_url: "https://powermin.gov.in"
-# Focusing on the core legal framework page
 start_url: "https://powermin.gov.in/en/content/electricity-act-2003"
 
 selectors:
-  # MoP lists major acts and their amendments in a content list
   row: ".field-items .field-item ul li"
-  title: "self" # The text within the li usually contains the act name
+  title: "self" 
   link: "a"
-  # They also have a dedicated "Rules" table
   table_row: "table.table tbody tr"
   table_title: "td:nth-child(2)"
   table_link: "td:nth-child(2) a"
-
-metadata_static:
-  authority: "Ministry of Power, Government of India"
-  document_type: "Act/Policy"

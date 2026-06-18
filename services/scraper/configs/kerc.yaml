@@ -2,23 +2,16 @@ site_name: "KERC"
 forum: "KERC"
 state: "KA"
 jurisdiction: "State - Karnataka"
-category: "Regulatory Documents"
+category: "Orders & Regulations"
+document_type: "Order"
 base_url: "https://kerc.karnataka.gov.in"
-# KERC frequently updates their "Latest Orders" and "Tariff" sections
 start_url: "https://kerc.karnataka.gov.in/english"
 
 selectors:
-  # KERC often uses a list-based navigation or a grid
-  row: ".view-content .views-row, table tbody tr"
-  title: "td:nth-child(2), .field-content a" 
-  link: "a[href$='.pdf']"
-  date: "span.date-display-single, td:nth-child(3)"
+  row: "table tbody tr"
+  title: "td:nth-child(2)"
+  link: "td:nth-child(3) a"
+  date: "td:nth-child(4)"
 
 navigation:
-  # The site is known to have heavy menu overlays
-  wait_for: ".main-container"
-  pagination: "li.pager-next a"
-
-metadata_static:
-  authority: "Karnataka Electricity Regulatory Commission"
-  document_type: "Order/Regulation"
+  wait_for: "table"

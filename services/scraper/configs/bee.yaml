@@ -3,19 +3,15 @@ forum: "BEE"
 state: "CENTRAL"
 jurisdiction: "Central - India"
 category: "Energy Conservation"
+document_type: "Rule/Regulation"
 base_url: "https://www.beeindia.gov.in"
 start_url: "https://www.beeindia.gov.in/show_content.php?lang=1&level=1&ls_id=158&lid=2"
 
 selectors:
-  # BEE often uses a simplified list for their "EC Act" documents
   row: ".inner_content ul li, .content_area table tbody tr"
   title: "a, td:nth-child(2)"
   link: "a[href$='.pdf']"
-  date: "span.date" # If available in the list item
+  date: "span.date" 
 
 navigation:
   wait_for: ".inner_content"
-
-metadata_static:
-  authority: "Bureau of Energy Efficiency"
-  document_type: "Rule/Regulation"

@@ -3,22 +3,16 @@ forum: "WBERC"
 state: "WB"
 jurisdiction: "State - West Bengal"
 category: "Tariff & Regulations"
+document_type: "Order"
 base_url: "https://www.wberc.gov.in"
-# WBERC often separates "Tariff Orders" and "Regulations" 
 start_url: "https://www.wberc.gov.in/tariff-orders"
 
 selectors:
-  # WBERC uses a very clean table structure for their documents
   row: ".table-responsive table tbody tr"
   title: "td:nth-child(2)" 
   link: "td:nth-child(3) a"
-  date: "td:nth-child(1)" # Date is frequently in the first column here
+  date: "td:nth-child(1)" 
 
 navigation:
-  # The site is generally fast but ensure the main table loads
   wait_for: "table"
   pagination: "ul.pagination li.next a"
-
-metadata_static:
-  authority: "West Bengal Electricity Regulatory Commission"
-  document_type: "Order"
