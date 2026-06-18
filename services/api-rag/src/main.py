@@ -30,7 +30,7 @@ async def ask_legal_bot(request: QueryRequest):
     try:
         # 1. Search the 100GB LanceDB for relevant law snippets
         search_results = engine.search(
-            query=request.question, 
+            search_query=request.question,  # <-- FIXED: Named argument now matches engine signature
             limit=request.limit, 
             jurisdiction=request.jurisdiction
         )
@@ -40,7 +40,18 @@ async def ask_legal_bot(request: QueryRequest):
 
         # 2. Extract the text chunks for the AI
         context_chunks = [result["text"] for result in search_results]
-        sources = [{"metadata": result.get("metadata")} for result in search_results]
+        
+        # Metadata fields are flattened top-level keys in our LanceDB schema
+        sources = [
+            {
+                "title": result.get("title", "Unknown Source"),
+                "authority": result.get("authority"),
+                "state": result.get("state"),
+                "jurisdiction": result.get("jurisdiction"),
+                "source_url": result.get("source_url")
+            }
+            for result in search_results
+        ]
 
         # 3. Get the professional answer from Gemini
         answer = assistant.ask_legal_question(request.question, context_chunks)

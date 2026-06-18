@@ -11,11 +11,17 @@ from dotenv import load_dotenv
 
 # reusing the same embedder from processor
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# Up 3 levels: src -> api-rag -> services -> root
-project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
+
+# --- FIXED: Use clean, reliable path lookup for Docker environment ---
+if os.path.exists("/app"):
+    project_root = "/app"
+else:
+    project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
+
 sys.path.append(os.path.join(project_root, 'services', 'processor', 'src'))
 
 from embedder import Embedder
+from vector_store import VectorStore  # Import your project's shared VectorStore configuration class
 
 load_dotenv()
 
@@ -25,12 +31,14 @@ class RetrievalEngine:
         if db_uri is None:
             db_uri = os.path.join(project_root, "data/index/legal_vdb")
 
+        # --- FIXED: Force VectorStore to use the exact absolute container target path ---
+        self.vdb = VectorStore(uri=db_uri)
         self.db = lancedb.connect(db_uri) # connect to the LanceDB instance
-        self.table_name = "law_chunks" # the table we created in worker.py
+        self.table_name = self.vdb.table_name 
+        
         self.embedder = Embedder() # initialize the same embedder to vectorize the query
         
         # Initialize Gemini Client
-        # We use the 1.5-flash model for stable, fast legal synthesis
         self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         self.model_name = "gemini-2.5-flash-lite"
 
@@ -39,7 +47,11 @@ class RetrievalEngine:
         # 1. Convert user question into a vector
         query_vector = self.embedder.get_embeddings([search_query])[0]
         
-        # 2. Open the table
+        # 2. Open the table safely using VectorStore runtime verification
+        if self.table_name not in self.db.table_names():
+            print(f"⚠️ Table '{self.table_name}' missing! Available tables: {self.db.table_names()}")
+            return []
+            
         table = self.db.open_table(self.table_name)
         
         # 3. Build the search query
@@ -94,12 +106,13 @@ class RetrievalEngine:
 
 if __name__ == "__main__":
     engine = RetrievalEngine()
-    
-    # a question about CEEW RTS Issue brief
-    query = "What are the main findings regarding RTS (Rooftop Solar) in the CEEW brief?"
+    query = "What rules or items are mentioned in the 2005 APTEL or WBERC documents?"
 
     print(f"\nQuestion: {query}")
     print("-" * 30)
     
-    answer = engine.ask(query)
-    print(answer)
+    try:
+        answer = engine.ask(query)
+        print(answer)
+    except Exception as e:
+        print(f" Run error: {str(e)}")
