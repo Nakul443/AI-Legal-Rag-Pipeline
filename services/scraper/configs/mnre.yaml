@@ -7,8 +7,7 @@ base_url: "https://mnre.gov.in"
 start_url: "https://mnre.gov.in/en/solar-policies-and-guidelines/"
 
 selectors:
-  # Using :has(a) ensures we skip the header row and only grab rows with PDFs
   row: "table tr:has(a)"
   title: "td:nth-child(2)"
   link: "td:nth-child(3) a"
-  date: "td:nth-child(1)" # MNRE often lists the date in the first column or inside the title; check the specific table
+  date: "td:nth-child(1)"

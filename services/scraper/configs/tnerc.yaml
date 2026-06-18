@@ -1,15 +1,12 @@
 site_name: "TNERC"
 forum: "TNERC"
-state: "TAMIL NADU"
+state: "TN"
 jurisdiction: "India"
 category: "Regulations"
 base_url: "http://exam.tnebnet.org"
-# Updated to a landing page if you want to find more links, 
-# or kept as a direct PDF for a specific test.
 start_url: "http://exam.tnebnet.org/exambooks/TO1B2.pdf" 
 
 selectors:
-  # Using simple selectors since this site often returns minimal HTML
   row: "body" 
-  title: "text" # Placeholder for direct PDF links
-  link: "self"  # Special flag for direct PDF discovery
+  title: "text" 
+  link: "self"

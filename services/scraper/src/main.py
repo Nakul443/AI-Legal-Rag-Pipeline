@@ -1,23 +1,3 @@
-# --- ENHANCED MONKEYPATCH FOR ALL BEAUTIFULSOUP TEXT EXTRACTION NODES ---
-import sys
-from bs4 import PageElement, Tag
-
-_orig_element_get_text = PageElement.get_text
-_orig_tag_get_text = Tag.get_text
-
-def _universal_patched_get_text(self, *args, **kwargs):
-    if 'space_join' in kwargs:
-        if kwargs.pop('space_join'):
-            kwargs['separator'] = kwargs.get('separator', ' ')
-    
-    if isinstance(self, Tag):
-        return _orig_tag_get_text(self, *args, **kwargs)
-    return _orig_element_get_text(self, *args, **kwargs)
-
-PageElement.get_text = _universal_patched_get_text
-Tag.get_text = _universal_patched_get_text
-# ──────────────────────────────────────────────────────────────────────────
-
 # "control center"
 # This file will be the main entry point for the scraper service. It will receive a URL from the API, 
 # send it to Crawl4AI (for JS-heavy sites) OR use a lightweight fetcher (for simple PDF discovery),
@@ -27,6 +7,7 @@ Tag.get_text = _universal_patched_get_text
 # a simple, fast script or heavy-duty virtual browser
 
 import os
+import sys
 import uuid
 import asyncio
 import httpx

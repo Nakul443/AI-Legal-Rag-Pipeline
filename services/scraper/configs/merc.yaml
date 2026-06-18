@@ -1,16 +1,13 @@
 site_name: "MERC"
 forum: "MERC"
-state: "MAHARASHTRA"
+state: "MH"
 jurisdiction: "India"
 category: "Regulatory Orders"
 base_url: "https://www.mahadiscom.in"
 start_url: "https://www.mahadiscom.in/en/consumer/distribution-open-access-regulation/"
 
 selectors:
-  # Mahadiscom tables often use standard tr/td layouts. 
-  # We keep the :has(a) to ensure we skip empty rows or headers.
   row: "table tr:has(a)"
   title: "td:nth-child(2)"
-  # Ensuring we target the actual download link in the 3rd column
   link: "td:nth-child(3) a"
   date: "td:nth-child(1)"

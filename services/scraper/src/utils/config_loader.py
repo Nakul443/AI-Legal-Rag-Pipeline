@@ -23,18 +23,18 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────
 
 # Valid Forum enum member names (the Python keys, not the .value strings)
-# [FIXED] Synchronized with the expanded Forum Enum matrix in schema.py
+# [FIXED] Synchronized with the expanded Forum Enum matrix in schema.py, including CEA, MNRE, and SECI
 VALID_FORUMS = {
     "CERC", "APTEL", "SUPREME_COURT", "HC_DELHI", "HC_BOMBAY",
     "SERC_MH", "SERC_GJ", "SERC_KA", "SERC_RJ", "SERC_TN",
     "MERC", "KERC", "TNERC", "UPERC", "WBERC", "DERC", "BERC", 
-    "HERC", "BEE", "MOP"
+    "HERC", "BEE", "MOP", "CEA", "MNRE", "SECI"
 }
 
 # Valid state codes used by generic_collector and DataOrchestrator
 # [FIXED] Updated to cover state references required by newly added legacy sites
 VALID_STATES = {
-    "CENTRAL",   # All federal forums: CERC, APTEL, SUPREME_COURT, BEE, MOP, etc.
+    "CENTRAL",   # All federal forums: CERC, APTEL, SUPREME_COURT, BEE, MOP, CEA, MNRE, SECI, etc.
     "MH",        # SERC_MH, MERC
     "GJ",        # SERC_GJ
     "KA",        # SERC_KA, KERC
