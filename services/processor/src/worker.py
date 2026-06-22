@@ -276,18 +276,16 @@ async def run_discovery_and_ingest(limit=None):
         metadata_files = [f for f in os.listdir(raw_dir) if f.endswith(".json")]
     except Exception as e:
         print(f"Folder data/raw could not be scanned: {e}")
-        return
+        return False
     
     if not metadata_files:
-        print(" No new data in data/raw.")
-        return
+        return False
 
     to_process = metadata_files[:limit] if limit else metadata_files
     print(f" Found {len(metadata_files)} files. Processing {len(to_process)}.")
 
     for meta_file in to_process:
         json_path = os.path.join(raw_dir, meta_file)
-        # Using dynamic non-hardcoded parsing logic to handle variant suffixes cleanly
         base_name = meta_file.rsplit('.', 1)[0]
         pdf_path = os.path.join(raw_dir, f"{base_name}.pdf")
 
@@ -306,6 +304,24 @@ async def run_discovery_and_ingest(limit=None):
                     print(f" Cleanup error: {e}")
         else:
             print(f" Missing PDF for {base_name}")
+    return True
 
 if __name__ == "__main__":
-    asyncio.run(run_discovery_and_ingest(limit=None))
+    # CONTINUOUS WATCHER LOOP FOR CLOUD DEPLOYMENT
+    print("Starting continuous ingestion worker...")
+    while True:
+        try:
+            processed = asyncio.run(run_discovery_and_ingest(limit=None))
+            if not processed:
+                print("No files found. Sleeping for 30s...")
+                import time
+                time.sleep(30)
+            else:
+                # If we just finished a batch, take a breath
+                import time
+                time.sleep(5)
+        except Exception as e:
+            print(f"Worker iteration failed: {e}")
+            # If a major error occurs, wait before retrying the loop
+            import time
+            time.sleep(60)

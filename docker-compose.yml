@@ -10,6 +10,7 @@ services:
       # Maps your local host directories directly into the container's active working directory
       - ./data:/app/data
       - ./fml-raw-legal-store:/app/fml-raw-legal-store
+    command: ["python3", "services/processor/src/worker.py"]
     restart: on-failure
 
   # this image will run the API server,
