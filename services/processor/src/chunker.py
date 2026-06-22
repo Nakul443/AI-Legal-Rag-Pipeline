@@ -7,21 +7,32 @@
 #    stored chunks, that query always returns empty and deduplication never runs.
 # 2. Added category forwarding: LegalChunk.category is Optional in schema but was never populated,
 #    losing the category enrichment computed in worker.py's enrich_metadata() for every chunk.
+# 3. Integrated LangChain RecursiveCharacterTextSplitter: replaced manual sub-chunking slicing with 
+#    a recursive character splitter (800 char size, 100 char overlap). This ensures legal 
+#    continuity and prevents sentence fragmentation at chunk boundaries.
 
 import os
 import sys
 import re
 from typing import List
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from models.schema import LegalDocument, LegalChunk
 # --- PATH FIX: Ensures it can find schema.py in the same directory ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 class DocumentProcessor:
-    def __init__(self, chunk_size: int = 1500, chunk_overlap: int = 200):
+    def __init__(self, chunk_size: int = 800, chunk_overlap: int = 100):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         # REGEX: Matches "Section 1", "Sec. 1", "Article 5", "Chapter II", etc.
         self.section_pattern = re.compile(r'(?i)^(Section|Sec\.|Article|Chapter|Clause)\s+(\d+|[IVXLC]+)', re.MULTILINE)
+        
+        # ADDED: Initialize the Recursive Splitter
+        self.splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            length_function=len,
+        )
 
     def chunk_text(self, text: str) -> List[dict]:
         """
@@ -39,7 +50,13 @@ class DocumentProcessor:
         if not matches:
             # Fallback to standard paragraph splitting if no legal headers found
             paragraphs = text.split("\n\n")
-            return [{"text": p, "header": "General"} for p in paragraphs if p.strip()]
+            for p in paragraphs:
+                if p.strip():
+                    # ADDED: Apply recursive splitter to long paragraphs
+                    sub_texts = self.splitter.split_text(p)
+                    for st in sub_texts:
+                        final_chunks.append({"text": st, "header": "General"})
+            return final_chunks
 
         # 2. Slice text between headers
         for i in range(len(matches)):
@@ -49,13 +66,10 @@ class DocumentProcessor:
             section_content = text[start_index:end_index].strip()
             header_text = matches[i].group(0) # e.g., "Section 135"
 
-            # Sub-chunking for massive sections
-            if len(section_content) > self.chunk_size:
-                sub_chunks = [section_content[j:j + self.chunk_size] for j in range(0, len(section_content), self.chunk_size - self.chunk_overlap)]
-                for sc in sub_chunks:
-                    final_chunks.append({"text": sc, "header": header_text})
-            else:
-                final_chunks.append({"text": section_content, "header": header_text})
+            # ADDED: Use recursive splitter for sub-chunking instead of manual slicing
+            sub_chunks = self.splitter.split_text(section_content)
+            for sc in sub_chunks:
+                final_chunks.append({"text": sc, "header": header_text})
         
         return final_chunks
 
