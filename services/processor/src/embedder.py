@@ -1,5 +1,4 @@
 # Embedder
-# puts data into vector database
 # This file is responsible for taking text chunks and converting them into numerical vectors.
 
 import os
@@ -10,30 +9,34 @@ load_dotenv()
 
 class Embedder:
     def __init__(self):
-        # Initialize the OpenAI client using the key from your .env file
+        # Initialize the OpenAI client once. The client uses an internal 
+        # connection pool that persists across multiple requests.
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in .env file. Please add it to generate embeddings.")
+            raise ValueError("OPENAI_API_KEY not found in .env file.")
             
         self.client = OpenAI(api_key=api_key)
-        # Using the most cost-effective and high-performance model
         self.model = "text-embedding-3-small"
 
-    def get_embeddings(self, text_list: list[str]):
-        """Converts a batch of text chunks into vectors using OpenAI."""
-        # OpenAI recommends stripping newlines for better performance
-        cleaned_texts = [text.replace("\n", " ").strip() for text in text_list]
+    def get_embeddings(self, text_list: list[str], batch_size: int = 100):
+        """
+        Converts text chunks into vectors. 
+        [PERFORMANCE] Now supports internal batching to keep API requests stable.
+        """
+        all_embeddings = []
         
-        try:
-            response = self.client.embeddings.create(
-                input=cleaned_texts,
-                model=self.model
-            )
+        # Process in smaller chunks to avoid request timeout on large documents
+        for i in range(0, len(text_list), batch_size):
+            batch = [t.replace("\n", " ").strip() for t in text_list[i:i + batch_size]]
             
-            # Extract the vector values from the response
-            return [data.embedding for data in response.data]
-            
-        except OpenAIError as e:
-            # Handle potential API errors (e.g., rate limits, connectivity)
-            print(f"Error generating embeddings from OpenAI: {e}")
-            raise
+            try:
+                response = self.client.embeddings.create(
+                    input=batch,
+                    model=self.model
+                )
+                all_embeddings.extend([data.embedding for data in response.data])
+            except OpenAIError as e:
+                print(f"Error generating embeddings from OpenAI: {e}")
+                raise
+                
+        return all_embeddings

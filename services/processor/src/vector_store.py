@@ -34,6 +34,15 @@ class VectorStore:
         
         self.db = lancedb.connect(uri)
         self.table_name = "law_chunks"
+        # [PERFORMANCE] Cached table object to eliminate redundant file system lookups
+        self._table = None
+
+    @property
+    def table(self):
+        """Lazy-load and cache the table for high-performance operations."""
+        if self._table is None and self.table_name in self.db.table_names():
+            self._table = self.db.open_table(self.table_name)
+        return self._table
 
     def has_document_hash(self, file_hash: str) -> bool:
         """
@@ -41,13 +50,12 @@ class VectorStore:
         Returns True if found, False if not.
         """
         # If the table does not exist yet, the document is definitely not inside
-        if self.table_name not in self.db.table_names():
+        if self.table is None:
             return False
             
         try:
-            table = self.db.open_table(self.table_name)
             # Look for even just one text chunk matching this file signature
-            results = table.search().where(f"duplicate_hash == '{file_hash}'").limit(1).to_list()
+            results = self.table.search().where(f"duplicate_hash == '{file_hash}'").limit(1).to_list()
             return len(results) > 0
         except Exception:
             # If any database error happens, safely assume it is not found
@@ -79,28 +87,28 @@ class VectorStore:
 
         df = pd.DataFrame(processed_records)
         
-        if self.table_name in self.db.table_names():
-            table = self.db.open_table(self.table_name)
+        # [PERFORMANCE] Use cached self.table
+        if self.table is not None:
             # Try to add data; if the schema has changed (e.g. added 'section_header'), catch the error
             try:
-                table.add(df)
+                self.table.add(df)
             except ValueError as e:
                 print(f"Schema mismatch detected: {e}")
                 print(f"Re-creating table '{self.table_name}' with new legal metadata schema...")
                 self.db.create_table(self.table_name, data=df, mode='overwrite')
+                self._table = None # Reset cache
         else:
             # Creating table with mode='overwrite' ensures fresh schema if needed
             self.db.create_table(self.table_name, data=df, mode='overwrite')
+            self._table = None # Reset cache
             
     def query(self, text_vector, limit=5, filter_str: Optional[str] = None):
         """Searches the database for the most relevant chunks."""
-        if self.table_name not in self.db.table_names():
+        if self.table is None:
             return [] # Return empty list if no data exists yet
-            
-        table = self.db.open_table(self.table_name)
         
         # Enhanced query logic to support SQL-like filtering (e.g., jurisdiction = 'CERC')
-        query_builder = table.search(text_vector)
+        query_builder = self.table.search(text_vector)
         
         if filter_str:
             query_builder = query_builder.where(filter_str)

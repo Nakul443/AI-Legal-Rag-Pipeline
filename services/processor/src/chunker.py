@@ -15,7 +15,7 @@ import os
 import sys
 import re
 from typing import List
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from models.schema import LegalDocument, LegalChunk
 # --- PATH FIX: Ensures it can find schema.py in the same directory ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
