@@ -31,3 +31,5 @@ s3transfer
 loguru
 tqdm
 typing_extensions
+
+flashrank
