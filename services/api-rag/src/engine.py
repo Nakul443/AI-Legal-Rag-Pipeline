@@ -13,7 +13,7 @@
 import lancedb
 import os
 import sys
-from google import genai 
+from openai import OpenAI, OpenAIError # Updated to OpenAI with error handling
 from dotenv import load_dotenv
 from flashrank import Ranker # ADDED: For high-precision re-ranking
 
@@ -49,9 +49,9 @@ class RetrievalEngine:
         # ADDED: Initialize FlashRank Ranker (loads a tiny cross-encoder model locally)
         self.ranker = Ranker() 
         
-        # Initialize Gemini Client
-        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        self.model_name = "gemini-2.5-flash-lite"
+        # Initialize OpenAI Client
+        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.model_name = "gpt-4o-mini"
 
     def search(self, search_query: str, limit: int = 50, jurisdiction: str | None = None):
         """Searches 100GB of data and re-ranks results for maximum relevance."""
@@ -95,34 +95,44 @@ class RetrievalEngine:
         # 2. Construct the context string
         # Metadata is now flattened: 'title' and 'text' are direct keys
         context_parts = []
+        
         for row in results:
-            source = row.get('title', 'Unknown Source')
+            # Use 'act_name' since that is the column present in your LanceDB
+            source_name = row.get('act_name') or 'Unknown Source'
             text = row.get('text', '')
-            context_parts.append(f"SOURCE: {source}\nTEXT: {text}")
+            
+            context_parts.append(f"SOURCE: {source_name}\nTEXT: {text}")
         
         context_text = "\n\n---\n\n".join(context_parts)
 
         # 3. Build the professional prompt
         prompt = f"""
-                You are a specialized Indian Legal AI. Your task is to extract and summarize findings from the provided document chunks.
-                Answer the user's question using ONLY the context provided below. 
-                If the context contains tables or lists of state policies, summarize them as "findings."
+        You are a specialized Indian Legal AI. 
+        Analyze the provided CONTEXT carefully to answer the USER QUESTION.
 
-                CONTEXT:
-                {context_text}
+        CRITICAL INSTRUCTIONS:
+        1. If the CONTEXT contains relevant legal clauses, regulations, or rules, summarize them clearly.
+        2. If the CONTEXT consists only of administrative rosters, headings, or unrelated data, state that "The retrieved documents contain administrative metadata but do not contain the specific legal rules requested."
+        3. Do not invent information. Use ONLY the provided CONTEXT.
 
-                USER QUESTION: 
-                {user_query}
+        CONTEXT:
+        {context_text}
 
-                LEGAL ADVICE (Provide a detailed summary and include source citations):
-                """
+        USER QUESTION: 
+        {user_query}
 
-        # 4. Generate response using unified genai client
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt
-        )
-        return response.text
+        ANSWER:
+        """
+
+        # 4. Generate response using OpenAI with error handling
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content
+        except OpenAIError as e:
+            return f"Error generating answer: {str(e)}"
 
 if __name__ == "__main__":
     engine = RetrievalEngine()
