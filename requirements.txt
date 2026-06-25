@@ -5,13 +5,17 @@ pydantic
 pydantic-settings
 python-dotenv
 pandas
+numpy
+pyyaml
 
 # --- AI & Vector Database ---
 openai
+google-genai
 langchain
+langchain-openai
 langchain-text-splitters
 lancedb
-llama-index
+llama-index-core
 llama-parse
 sentence-transformers
 
@@ -32,4 +36,7 @@ loguru
 tqdm
 typing_extensions
 
-flashrank
+sentence-transformers
+torch>=2.0.0
+scikit-learn
+scipy

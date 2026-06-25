@@ -63,6 +63,12 @@ async def ask_legal_bot(request: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/health")
+async def health_check():
+    print("Health check endpoint was triggered!") # Check if this appears in the logs
+    return {"status": "ok"}
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

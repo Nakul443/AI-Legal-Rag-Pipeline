@@ -13,9 +13,10 @@
 import lancedb
 import os
 import sys
+import numpy as np 
 from openai import OpenAI, OpenAIError # Updated to OpenAI with error handling
 from dotenv import load_dotenv
-from flashrank import Ranker # ADDED: For high-precision re-ranking
+from sentence_transformers import CrossEncoder # FIXED: Using CrossEncoder to bypass onnxruntime errors
 
 # reusing the same embedder from processor
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -35,77 +36,63 @@ load_dotenv()
 
 class RetrievalEngine:
     def __init__(self, db_uri: str | None = None):
-        # path logic to find the database from the API service
         if db_uri is None:
             db_uri = os.path.join(project_root, "data/index/legal_vdb")
 
-        # --- FIXED: Force VectorStore to use the exact absolute container target path ---
         self.vdb = VectorStore(uri=db_uri)
-        self.db = lancedb.connect(db_uri) # connect to the LanceDB instance
+        self.db = lancedb.connect(db_uri)
         self.table_name = self.vdb.table_name 
+        self.embedder = Embedder()
         
-        self.embedder = Embedder() # initialize the same embedder to vectorize the query
+        # FIXED: Initialize robust CrossEncoder
+        self.ranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2") 
         
-        # ADDED: Initialize FlashRank Ranker (loads a tiny cross-encoder model locally)
-        self.ranker = Ranker() 
-        
-        # Initialize OpenAI Client
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model_name = "gpt-4o-mini"
 
     def search(self, search_query: str, limit: int = 50, jurisdiction: str | None = None):
         """Searches 100GB of data and re-ranks results for maximum relevance."""
-        # 1. Convert user question into a vector
         query_vector = self.embedder.get_embeddings([search_query])[0]
         
-        # 2. Open the table safely using VectorStore runtime verification
         if self.table_name not in self.db.table_names():
-            print(f"⚠️ Table '{self.table_name}' missing! Available tables: {self.db.table_names()}")
             return []
             
         table = self.db.open_table(self.table_name)
-        
-        # 3. Build the search query (Retrieve 50 candidates for re-ranking)
         search_builder = table.search(query_vector).limit(limit)
         
-        # Fixed: Jurisdiction is now a top-level column in our flattened LanceDB schema
         if jurisdiction:
             search_builder = search_builder.where(f"jurisdiction = '{jurisdiction}'")
             
         results = search_builder.to_list()
 
-        # ADDED: Re-ranking logic
-        rerank_input = [{"id": r["chunk_id"], "text": r["text"]} for r in results]
-        reranked_results = self.ranker.rerank(query=search_query, passages=rerank_input)
+        # FIXED: Robust Re-ranking logic using CrossEncoder
+        pairs = [[search_query, r["text"]] for r in results]
+        scores = self.ranker.predict(pairs)
         
-        # Map re-ranked IDs back to full row data
-        ranked_ids = [r["id"] for r in reranked_results[:5]] # Keep top 5
-        final_results = [r for r in results if r["chunk_id"] in ranked_ids]
+        # Attach scores back to results
+        for i, r in enumerate(results):
+            r['rerank_score'] = scores[i]
+        
+        # Sort and pick top 5
+        results.sort(key=lambda x: x['rerank_score'], reverse=True)
+        final_results = results[:5]
         
         return final_results
 
     def ask(self, user_query: str, jurisdiction: str | None = None):
-        """The full RAG flow: Search snippets and generate a legal answer."""
-        # 1. Get relevant snippets (Re-ranking logic now inside search)
         results = self.search(search_query=user_query, limit=50, jurisdiction=jurisdiction)
         
         if not results:
             return "I couldn't find any relevant legal documents in the database to answer that."
 
-        # 2. Construct the context string
-        # Metadata is now flattened: 'title' and 'text' are direct keys
         context_parts = []
-        
         for row in results:
-            # Use 'act_name' since that is the column present in your LanceDB
             source_name = row.get('act_name') or 'Unknown Source'
             text = row.get('text', '')
-            
             context_parts.append(f"SOURCE: {source_name}\nTEXT: {text}")
         
         context_text = "\n\n---\n\n".join(context_parts)
 
-        # 3. Build the professional prompt
         prompt = f"""
         You are a specialized Indian Legal AI. 
         Analyze the provided CONTEXT carefully to answer the USER QUESTION.
@@ -124,7 +111,6 @@ class RetrievalEngine:
         ANSWER:
         """
 
-        # 4. Generate response using OpenAI with error handling
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
@@ -137,10 +123,6 @@ class RetrievalEngine:
 if __name__ == "__main__":
     engine = RetrievalEngine()
     query = "What rules or items are mentioned in the 2005 APTEL or WBERC documents?"
-
-    print(f"\nQuestion: {query}")
-    print("-" * 30)
-    
     try:
         answer = engine.ask(query)
         print(answer)

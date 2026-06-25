@@ -2,10 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for compiling specific vector libraries or binaries
+# Update the system dependencies section to include libraries required by flashrank and crawl4ai
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    libstdc++6 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy python dependencies layout
