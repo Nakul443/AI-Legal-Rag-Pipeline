@@ -157,7 +157,7 @@ async def test_scrape(site_key: str, force_browser: bool | None = None) -> None:
 
     # Process discovered items to test the pipeline
     # HAND OFF: Execution handed off cleanly to engine workflow for exactly 1 document per portal slice matrix
-    for item in discovered_docs[:1]:
+    for item in discovered_docs:
         print(f" -> Ingesting via Engine: {item['title']}...")
         await collector.save_to_raw(item)
 
