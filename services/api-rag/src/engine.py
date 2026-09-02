@@ -10,13 +10,16 @@
 # 13. Optimized context assembly: Pipeline now dynamically truncates context based on re-ranker scores, 
 #     ensuring the LLM receives only high-confidence legal snippets.
 
-import lancedb
 import os
 import sys
-import numpy as np 
-from openai import OpenAI, OpenAIError # Updated to OpenAI with error handling
+
+import lancedb
+import numpy as np
 from dotenv import load_dotenv
-from sentence_transformers import CrossEncoder # FIXED: Using CrossEncoder to bypass onnxruntime errors
+from openai import OpenAI, OpenAIError  # Updated to OpenAI with error handling
+from sentence_transformers import (
+    CrossEncoder,  # FIXED: Using CrossEncoder to bypass onnxruntime errors
+)
 
 # reusing the same embedder from processor
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,19 +32,23 @@ else:
 
 sys.path.append(os.path.join(project_root, 'services', 'processor', 'src'))
 
-from embedder import Embedder
-from vector_store import VectorStore  # Import your project's shared VectorStore configuration class
+try:
+    from services.processor.src.embedder import Embedder
+    from services.processor.src.vector_store import VectorStore
+except ImportError:
+    from embedder import Embedder  # type: ignore
+    from vector_store import VectorStore  # type: ignore
 
 load_dotenv()
 
 class RetrievalEngine:
-    def __init__(self, db_uri: str | None = None):
+    def __init__(self, db_uri: str | None = None, table_name: str = "law_chunks"):
         if db_uri is None:
             db_uri = os.path.join(project_root, "data/index/legal_vdb")
 
-        self.vdb = VectorStore(uri=db_uri)
+        self.vdb = VectorStore(uri=db_uri, table_name=table_name)
         self.db = lancedb.connect(db_uri)
-        self.table_name = self.vdb.table_name 
+        self.table_name = table_name 
         self.embedder = Embedder()
         
         # FIXED: Initialize robust CrossEncoder
@@ -50,7 +57,7 @@ class RetrievalEngine:
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model_name = "gpt-4o-mini"
 
-    def search(self, search_query: str, limit: int = 50, jurisdiction: str | None = None):
+    def search(self, search_query: str, limit: int = 50, jurisdiction: str | None = None, user_id: str | None = None):
         """Searches 100GB of data and re-ranks results for maximum relevance."""
         query_vector = self.embedder.get_embeddings([search_query])[0]
         
@@ -60,8 +67,14 @@ class RetrievalEngine:
         table = self.db.open_table(self.table_name)
         search_builder = table.search(query_vector).limit(limit)
         
+        where_clauses = []
         if jurisdiction:
-            search_builder = search_builder.where(f"jurisdiction = '{jurisdiction}'")
+            where_clauses.append(f"jurisdiction = '{jurisdiction}'")
+        if user_id:
+            where_clauses.append(f"user_id = '{user_id}'")
+            
+        if where_clauses:
+            search_builder = search_builder.where(" AND ".join(where_clauses))
             
         results = search_builder.to_list()
 
@@ -79,15 +92,15 @@ class RetrievalEngine:
         
         return final_results
 
-    def ask(self, user_query: str, jurisdiction: str | None = None):
-        results = self.search(search_query=user_query, limit=50, jurisdiction=jurisdiction)
+    def ask(self, user_query: str, jurisdiction: str | None = None, user_id: str | None = None):
+        results = self.search(search_query=user_query, limit=50, jurisdiction=jurisdiction, user_id=user_id)
         
         if not results:
             return "I couldn't find any relevant legal documents in the database to answer that."
 
         context_parts = []
         for row in results:
-            source_name = row.get('act_name') or 'Unknown Source'
+            source_name = row.get('act_name') or row.get('title') or 'Unknown Source'
             text = row.get('text', '')
             context_parts.append(f"SOURCE: {source_name}\nTEXT: {text}")
         

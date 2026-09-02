@@ -3,9 +3,9 @@
 # "translator," turns database rows into professional, human-readable answers to user questions.
 
 import os
-from google import genai
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
+from google import genai
 
 load_dotenv()
 
@@ -44,3 +44,38 @@ class LegalAssistant:
             contents=prompt
         )
         return response.text
+
+
+class GeneralAssistant:
+    def __init__(self):
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY not found in .env file.")
+        
+        self.client = genai.Client(api_key=api_key)
+
+    def ask_general_question(self, question: str, context_chunks: list) -> str:
+        """Combines the user's question with retrieved general snippets."""
+        context_text = "\n\n".join([f"Source: {c}" for c in context_chunks])
+
+        prompt = f"""
+        Answer the user's question using ONLY the provided context. 
+        If the answer is not in the context, state clearly that you don't know or that the context does not contain the answer. 
+        Do not make up or assume any details.
+
+        Rules:
+        1. Base your answer solely on the provided context below.
+        2. Do not invent any facts.
+        3. Keep the tone professional, objective, and precise.
+
+        Context:
+        {context_text}
+
+        User Question: {question}
+        """
+
+        response = self.client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt
+        )
+        return response.text or ""
