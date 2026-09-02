@@ -36,7 +36,9 @@ loguru
 tqdm
 typing_extensions
 
-sentence-transformers
+fastmcp>=2.0.0
+mcp>=1.0.0
+
 torch>=2.0.0
 scikit-learn
 scipy
