@@ -20,7 +20,7 @@ from models.schema import Forum
 load_dotenv()
 
 class VectorStore:
-    def __init__(self, uri: Optional[str] = None):
+    def __init__(self, uri: Optional[str] = None, table_name: str = "law_chunks"):
         # In production, this URI will be an S3 path: "s3://bucket-name/index"
         
         # --- FIXED: Use absolute path to project root ---
@@ -35,7 +35,7 @@ class VectorStore:
         os.makedirs(os.path.dirname(uri), exist_ok=True)
         
         self.db = lancedb.connect(uri)
-        self.table_name = "law_chunks"
+        self.table_name = table_name
         # [PERFORMANCE] Cached table object to eliminate redundant file system lookups
         self._table = None
 
