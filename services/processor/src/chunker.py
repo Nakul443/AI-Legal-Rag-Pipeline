@@ -12,11 +12,14 @@
 #    continuity and prevents sentence fragmentation at chunk boundaries.
 
 import os
-import sys
 import re
+import sys
 from typing import List
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from models.schema import LegalDocument, LegalChunk
+
+from models.schema import LegalChunk, LegalDocument
+
 # --- PATH FIX: Ensures it can find schema.py in the same directory ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 

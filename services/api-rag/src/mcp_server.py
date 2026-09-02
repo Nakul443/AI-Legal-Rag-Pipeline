@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import Optional
+
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -19,7 +19,7 @@ sys.path.append(current_dir)
 
 from assistant import LegalAssistant
 from engine import RetrievalEngine
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
@@ -51,13 +51,13 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
                         {"detail": "Unauthorized: Invalid Bearer Token"}, 
                         status_code=401
                     )
-        
+
         response = await call_next(request)
         return response
 
 # Expose search_legal_rag tool
 @mcp.tool()
-def search_legal_rag(query: str, jurisdiction: Optional[str] = None) -> str:
+def search_legal_rag(query: str, jurisdiction: str | None = None) -> str:
     """
     Search the legal RAG pipeline and generate a contextual legal answer using GEMINI.
     
@@ -80,7 +80,7 @@ def search_legal_rag(query: str, jurisdiction: Optional[str] = None) -> str:
         context_chunks = [result["text"] for result in search_results]
         
         # 3. Get professional answer from Legal Assistant / Gemini
-        answer = assistant.ask_legal_question(query, context_chunks)
+        answer = assistant.ask_legal_question(query, context_chunks) or ""
         
         # 4. Extract citations / sources
         sources = []
@@ -112,7 +112,7 @@ def search_legal_rag(query: str, jurisdiction: Optional[str] = None) -> str:
         return answer
         
     except Exception as e:
-        return f"An error occurred while executing the legal RAG search: {str(e)}"
+        return f"An error occurred while executing the legal RAG search: {e!s}"
 
 if __name__ == "__main__":
     # Create middleware list

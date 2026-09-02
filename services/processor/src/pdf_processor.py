@@ -1,10 +1,11 @@
 # raw PDF -> structured text and metadata for RAG pipeline
 # PDFProcessor sends local PDFs to LlamaParse, which converts complex regulatory tables into Markdown,
 # ensuring RAG doesn't lose data during retrieval.
-import os
 import asyncio
-from llama_parse import LlamaParse, ResultType
+import os
+
 from dotenv import load_dotenv
+from llama_parse import LlamaParse, ResultType
 
 load_dotenv()
 

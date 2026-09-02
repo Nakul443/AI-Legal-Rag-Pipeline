@@ -6,13 +6,15 @@
 
 # makes it easy for the RAG pipeline to search for documents
 
-import lancedb
 import os
-import pandas as pd
-import numpy as np # Added for vector type casting
 from enum import Enum  # Added to check and serialize the new schema enums safely
-from dotenv import load_dotenv
 from typing import Optional
+
+import lancedb
+import numpy as np  # Added for vector type casting
+import pandas as pd
+from dotenv import load_dotenv
+
 from models.schema import Forum
 
 load_dotenv()

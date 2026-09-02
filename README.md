@@ -15,6 +15,7 @@ A production-grade pipeline that automatically scrapes regulatory PDFs from Indi
    - [Scraper Service](#1-scraper-service)
    - [Processor Service](#2-processor-service)
    - [API-RAG Service](#3-api-rag-service)
+   - [MCP Tool Server](#4-mcp-tool-server)
 7. [End-to-End Data Flow](#-end-to-end-data-flow)
 8. [Environment Variables](#-environment-variables)
 9. [Docker Setup](#-docker-setup)
@@ -350,6 +351,16 @@ Builds a structured prompt from the retrieved chunks:
 
 The API auto-generates interactive docs at `http://localhost:8000/docs` via FastAPI's built-in Swagger UI — no frontend needed for testing.
 
+#### 4. MCP Tool Server
+
+**Entry point:** `services/api-rag/src/mcp_server.py`
+
+This implements a native Model Context Protocol (MCP) server over streamable HTTP, enabling external MCP clients (including custom agents or chatbots) to securely query the legal database.
+
+*   **Port:** `8003` (to avoid port collision with the `8000` port of the REST API)
+*   **Protocol:** Streamable HTTP Transport
+*   **Bearer Auth Middleware:** Validates requests on paths starting with `/mcp` via Starlette middleware. Matches against the `MCP_AUTH_TOKEN` environment variable. If `MCP_AUTH_TOKEN` is unset, it allows unauthenticated traffic for local development convenience.
+
 ---
 
 ## 🔄 End-to-End Data Flow
@@ -448,13 +459,12 @@ ENVIRONMENT=development
 
 The project ships a single `Dockerfile` (Python 3.11-slim) that copies the entire workspace and sets `PYTHONPATH` so cross-service imports work without installation. `docker-compose.yml` runs three services from this same image:
 
-| Service | Container | Command | Volumes |
-|---|---|---|---|
 | `legal_scraper` | `legal_scraper` | `python3 services/scraper/src/main.py` | `./data` |
 | `legal_processor_worker` | `legal_processor_worker` | `python3 services/processor/src/worker.py` (default CMD) | `./data`, `./fml-raw-legal-store` |
 | `legal_api_server` | `legal_api_server` | `python3 services/api-rag/src/main.py` | `./data`, `./fml-raw-legal-store` |
+| `legal_mcp_server` | `legal_mcp_server` | `python3 services/api-rag/src/mcp_server.py` | `./data`, `./fml-raw-legal-store` |
 
-The API server exposes port `8000` and is set to `restart: always`. The worker is set to `restart: on-failure`. The scraper can be run as a one-shot job or on a schedule.
+The API server exposes port `8000` and is set to `restart: always`. The MCP server exposes port `8003` and is also set to `restart: always`. The worker is set to `restart: on-failure`. The scraper can be run as a one-shot job or on a schedule.
 
 **Build and run everything:**
 ```bash
@@ -469,6 +479,11 @@ docker-compose up legal_processor_worker
 **Run only the API:**
 ```bash
 docker-compose up legal_api_server
+```
+
+**Run only the MCP server:**
+```bash
+docker-compose up legal_mcp_server
 ```
 
 ---
@@ -513,6 +528,28 @@ curl -X POST http://localhost:8000/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the open access charges under CERC regulations?", "jurisdiction": "CERC"}'
 ```
+
+### Step 5 — Start the MCP Server
+```bash
+python services/api-rag/src/mcp_server.py
+```
+The Model Context Protocol (MCP) server is live at `http://localhost:8003`.
+
+#### Authentication (Optional)
+If the `MCP_AUTH_TOKEN` environment variable is set in your `.env` file (e.g. `MCP_AUTH_TOKEN=your-secure-mcp-auth-token`), requests to paths starting with `/mcp` will require a matching Authorization header:
+```text
+Authorization: Bearer your-secure-mcp-auth-token
+```
+If `MCP_AUTH_TOKEN` is not defined in the environment, local testing and development can proceed without authentication.
+
+#### Exposed Tools
+The MCP server exposes the following tool for any MCP-compliant client (such as a chatbot or coding agent):
+
+*   **`search_legal_rag`**
+    *   **Parameters**:
+        *   `query` (`str`): The search/legal question query.
+        *   `jurisdiction` (`str | None`): Optional jurisdiction filter (e.g., Central or State authorities).
+    *   **Returns**: `str` (Professional answer grounded in context, with source titles and URLs appended at the end).
 
 ---
 

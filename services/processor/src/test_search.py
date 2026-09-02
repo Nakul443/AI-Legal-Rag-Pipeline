@@ -11,10 +11,11 @@
 import os
 import sys
 import time
-from embedder import Embedder
-from vector_store import VectorStore
-from google import genai 
+
 from dotenv import load_dotenv
+from embedder import Embedder
+from google import genai
+from vector_store import VectorStore
 
 # --- PATH FIX: Ensure we can find models if needed, though VectorStore handles its own imports ---
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))

@@ -9,7 +9,7 @@
 # where you can test your 100GB RAG without writing a single line of frontend code.
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from engine import RetrievalEngine
 from assistant import LegalAssistant
 from typing import Optional
@@ -21,9 +21,13 @@ engine = RetrievalEngine()
 assistant = LegalAssistant()
 
 class QueryRequest(BaseModel):
-    question: str
+    question: str = Field(..., alias="query")
     jurisdiction: Optional[str] = None
     limit: int = 5
+
+    model_config = {
+        "populate_by_name": True
+    }
 
 @app.post("/ask")
 async def ask_legal_bot(request: QueryRequest):

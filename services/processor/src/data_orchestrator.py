@@ -29,11 +29,13 @@
 # Orchestrator Cleaned Parties: ADANI_v_GUVNL
 # Deterministic metadata architecture completed.
 
+import hashlib
 import os
 import re
-import hashlib
 from typing import Tuple
-from models.schema import LegalDocument, LegalObjectType, LegalIssue, Industry, Forum
+
+from models.schema import Forum, Industry, LegalDocument, LegalIssue, LegalObjectType
+
 
 class DataOrchestrator:
     def __init__(self, base_storage_path: str):

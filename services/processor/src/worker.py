@@ -17,14 +17,14 @@
 # 10. Added SQLite StateManager for persistent pipeline tracking.
 # 11. Refactored ingestion loop for resumeable and interrupt-safe operations.
 
-import os
-import sys
-import json
-import asyncio 
-import re
+import asyncio
 import hashlib
+import json
+import os
+import re
 import shutil
 import sqlite3
+import sys
 import time
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -33,11 +33,18 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 from chunker import DocumentProcessor
-from embedder import Embedder
-from vector_store import VectorStore
-from models.schema import LegalDocument, LegalObjectType, LegalIssue, Forum, ChallengeStatus
-from pdf_processor import PDFProcessor
 from data_orchestrator import DataOrchestrator
+from embedder import Embedder
+from pdf_processor import PDFProcessor
+from vector_store import VectorStore
+
+from models.schema import (
+    ChallengeStatus,
+    Forum,
+    LegalDocument,
+    LegalIssue,
+    LegalObjectType,
+)
 
 # [PERFORMANCE] Global persistent instances to eliminate handshake overhead
 STORAGE_ROOT = os.path.join(project_root, "fml-raw-legal-store")

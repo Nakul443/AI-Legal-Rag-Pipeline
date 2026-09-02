@@ -2,8 +2,9 @@
 # This file is responsible for taking text chunks and converting them into numerical vectors.
 
 import os
-from openai import OpenAI, OpenAIError
+
 from dotenv import load_dotenv
+from openai import OpenAI, OpenAIError
 
 load_dotenv()
 

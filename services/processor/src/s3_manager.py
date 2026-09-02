@@ -1,6 +1,7 @@
 # will move the scraped JSON/markdown files to S3 for long-term storage and later retrieval by the RAG pipeline
 
 import os
+
 import boto3
 from botocore.exceptions import NoCredentialsError
 from dotenv import load_dotenv
