@@ -17,7 +17,7 @@ else:
 sys.path.append(os.path.join(project_root, 'services', 'processor', 'src'))
 sys.path.append(current_dir)
 
-from assistant import LegalAssistant
+from assistant import LegalAssistant, GeneralAssistant
 from engine import RetrievalEngine
 from fastmcp import FastMCP
 from starlette.middleware import Middleware
@@ -27,9 +27,18 @@ from starlette.responses import JSONResponse
 # Initialize FastMCP server
 mcp = FastMCP("Vessel Legal RAG MCP Server")
 
-# Instantiate RetrievalEngine and LegalAssistant once at module load
+# Instantiate RetrievalEngines and Assistants once at module load
 engine = RetrievalEngine()
 assistant = LegalAssistant()
+
+general_engine = RetrievalEngine(table_name="general_chunks")
+general_assistant = GeneralAssistant()
+
+# Import the general ingestor function
+try:
+    from services.processor.src.general_ingestor import ingest_general_pdf
+except ImportError:
+    from general_ingestor import ingest_general_pdf  # type: ignore
 
 # Custom Starlette Middleware for Bearer Token Auth
 class BearerAuthMiddleware(BaseHTTPMiddleware):
@@ -113,6 +122,91 @@ def search_legal_rag(query: str, jurisdiction: str | None = None) -> str:
         
     except Exception as e:
         return f"An error occurred while executing the legal RAG search: {e!s}"
+
+# Expose search_general tool
+@mcp.tool()
+def search_general(query: str, user_id: str) -> str:
+    """
+    Search the general-purpose RAG pipeline and generate a contextual answer using GEMINI.
+    The search is scoped and restricted only to the specified user's uploaded files.
+    
+    Args:
+        query: The search/question query.
+        user_id: The ID of the user whose files should be searched.
+    """
+    try:
+        # 1. Search general_chunks with user_id filter
+        search_results = general_engine.search(
+            search_query=query,
+            limit=5,
+            user_id=user_id
+        )
+        
+        if not search_results:
+            return f"I couldn't find any documents indexed for user '{user_id}' that match your query."
+            
+        # 2. Extract text chunks
+        context_chunks = [result["text"] for result in search_results]
+        
+        # 3. Get answer from GeneralAssistant / Gemini
+        answer = general_assistant.ask_general_question(query, context_chunks) or ""
+        
+        # 4. Extract unique sources / document titles
+        sources = []
+        for result in search_results:
+            title = result.get("title") or "Unknown Document"
+            citation = f"- **{title}**"
+            if citation not in sources:
+                sources.append(citation)
+                
+        if sources:
+            sources_text = "\n".join(sources)
+            answer = f"{answer}\n\n### Sources:\n{sources_text}"
+            
+        return answer
+    except Exception as e:
+        return f"An error occurred while executing the general search: {e!s}"
+
+# Expose ingest_pdf tool
+@mcp.tool()
+async def ingest_pdf(file_base64: str, filename: str, user_id: str) -> str:
+    """
+    Upload and index a general-purpose PDF file. The file is scoped to the specified user.
+    
+    Args:
+        file_base64: The base64-encoded string representation of the PDF file's bytes.
+        filename: The original filename of the PDF.
+        user_id: The ID of the user uploading the file.
+    """
+    import base64
+    import tempfile
+    
+    temp_file_path = None
+    try:
+        # Decode base64 string
+        file_bytes = base64.b64decode(file_base64)
+        
+        # Write to a temporary file
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+            temp_file.write(file_bytes)
+            temp_file_path = temp_file.name
+            
+        # Ingest general PDF
+        success = await ingest_general_pdf(temp_file_path, user_id, filename)
+        
+        if success:
+            return f"Successfully processed and indexed '{filename}' for user '{user_id}'."
+          else:
+            return f"Failed to index '{filename}' for user '{user_id}'."
+    except Exception as e:
+        return f"An error occurred while ingesting the PDF: {e!s}"
+    finally:
+        # Always clean up the temporary file
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     # Create middleware list
