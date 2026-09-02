@@ -196,7 +196,7 @@ async def ingest_pdf(file_base64: str, filename: str, user_id: str) -> str:
         
         if success:
             return f"Successfully processed and indexed '{filename}' for user '{user_id}'."
-          else:
+        else:
             return f"Failed to index '{filename}' for user '{user_id}'."
     except Exception as e:
         return f"An error occurred while ingesting the PDF: {e!s}"
